@@ -35,7 +35,7 @@ The release archive excludes model weights and personal data. On a new machine, 
 The release command is:
 
 ```powershell
-pwsh -File .\scripts\release.ps1 -Version 0.2.0
+pwsh -File .\scripts\release.ps1 -Version 0.2.1
 ```
 
 It publishes a self-contained Windows x64 app, packages the portable ZIP and Inno Setup installer, and writes SHA-256 manifests under `artifacts\release`. It does not install or launch the app. Prior generated artifacts are preserved under `artifacts\release\.previous` before replacement. This folder can grow across repeated packaging runs; its contents are build artifacts, not user data.

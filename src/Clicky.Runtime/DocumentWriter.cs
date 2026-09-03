@@ -1,9 +1,11 @@
 using System.IO.Compression;
 using System.Diagnostics;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Xml.Linq;
+using Microsoft.Win32.SafeHandles;
 using PdfSharp.Drawing;
 using PdfSharp.Fonts;
 using PdfSharp.Pdf;
@@ -188,17 +190,33 @@ public static class DocumentWriter
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(45));
         using var process = new Process { StartInfo = new ProcessStartInfo(browser) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true } };
-        foreach (var argument in new[] { "--headless=new", "--disable-gpu", "--disable-background-networking", "--disable-extensions", "--disable-sync", "--no-first-run", "--no-default-browser-check", "--no-pdf-header-footer", "--user-data-dir=" + Path.Combine(scratch, "profile"), "--print-to-pdf=" + Path.GetFullPath(path), new Uri(htmlPath).AbsoluteUri })
+        // An inherited Windows compatibility layer can relaunch Edge through a short-lived shim,
+        // making process exit occur before the detached renderer has finished the PDF.
+        process.StartInfo.Environment.Remove("__COMPAT_LAYER");
+        foreach (var argument in new[] { "--headless=new", "--edge-skip-compat-layer-relaunch", "--disable-gpu", "--disable-background-networking", "--disable-extensions", "--disable-sync", "--no-first-run", "--no-default-browser-check", "--no-pdf-header-footer", "--user-data-dir=" + Path.Combine(scratch, "profile"), "--print-to-pdf=" + Path.GetFullPath(path), new Uri(htmlPath).AbsoluteUri })
             process.StartInfo.ArgumentList.Add(argument);
+        Task<string>? standardOutput = null;
+        Task<string>? standardError = null;
+        Task? processExit = null;
+        Task? completedPdf = null;
+        RendererJob? rendererJob = null;
         try
         {
             if (!process.Start())
                 throw new IOException("Could not start the local PDF print engine.");
-            var standardOutput = process.StandardOutput.ReadToEndAsync(timeout.Token);
-            var standardError = process.StandardError.ReadToEndAsync(timeout.Token);
-            await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
-            await Task.WhenAll(standardOutput, standardError).ConfigureAwait(false);
-            if (process.ExitCode != 0 || !File.Exists(path) || new FileInfo(path).Length < 100)
+            rendererJob = RendererJob.Attach(process);
+            standardOutput = process.StandardOutput.ReadToEndAsync(timeout.Token);
+            standardError = process.StandardError.ReadToEndAsync(timeout.Token);
+            processExit = process.WaitForExitAsync(timeout.Token);
+            completedPdf = WaitForCompletedPdfAsync(path, timeout.Token);
+            if (await Task.WhenAny(processExit, completedPdf).ConfigureAwait(false) == processExit)
+            {
+                await processExit.ConfigureAwait(false);
+                if (process.ExitCode != 0)
+                    throw new IOException("The local PDF print engine did not produce a document. Try DOCX export and check that Edge can start.");
+            }
+            await completedPdf.ConfigureAwait(false);
+            if (process.HasExited && process.ExitCode != 0)
                 throw new IOException("The local PDF print engine did not produce a document. Try DOCX export and check that Edge can start.");
             // PDF glyph streams often store complex scripts in visual order. Preserve the original logical
             // text for this app's own exports, tied to a hash of the visible text so later edits cannot return stale content.
@@ -219,24 +237,163 @@ public static class DocumentWriter
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { throw new TimeoutException("The PDF print engine did not finish within 45 seconds."); }
         finally
         {
+            timeout.Cancel();
+            rendererJob?.Dispose();
             try
             {
                 if (!process.HasExited)
                 {
                     process.Kill(true);
-                    await process.WaitForExitAsync().ConfigureAwait(false);
+                    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
                 }
             }
-            catch (InvalidOperationException) { }
-            // Remove only the exact directory created by this invocation. It never contains user browser data.
+            catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception or TimeoutException) { }
+            finally
+            {
+                var backgroundTasks = new List<Task>(4);
+                if (processExit is not null)
+                    backgroundTasks.Add(processExit);
+                if (completedPdf is not null)
+                    backgroundTasks.Add(completedPdf);
+                if (standardOutput is not null)
+                    backgroundTasks.Add(standardOutput);
+                if (standardError is not null)
+                    backgroundTasks.Add(standardError);
+                if (backgroundTasks.Count != 0)
+                {
+                    var observedTasks = Task.WhenAll(backgroundTasks);
+                    try
+                    {
+                        await observedTasks.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                    }
+                    catch (Exception error) when (error is IOException or InvalidOperationException or OperationCanceledException or TimeoutException)
+                    {
+                        _ = observedTasks.ContinueWith(static task => _ = task.Exception, CancellationToken.None,
+                            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                    }
+                }
+            }
+            await DeleteScratchDirectoryAsync(scratch).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task DeleteScratchDirectoryAsync(string scratch)
+    {
+        // Remove only the exact GUID directory created by this invocation. Edge children can hold
+        // profile files briefly after the PDF closes, so retry for a bounded cleanup window.
+        for (var attempt = 0; attempt < 25; attempt++)
+        {
+            if (!Directory.Exists(scratch))
+                return;
             try
             {
                 Directory.Delete(scratch, true);
+                return;
             }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                if (attempt == 24)
+                    return;
+                await Task.Delay(200).ConfigureAwait(false);
+            }
         }
     }
+
+    private static async Task WaitForCompletedPdfAsync(string path, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var file = new FileInfo(path);
+                file.Refresh();
+                if (file.Exists && file.Length >= 100)
+                {
+                    using var completed = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+                    var header = new byte[5];
+                    completed.ReadExactly(header);
+                    var tail = new byte[(int)Math.Min(1024L, completed.Length)];
+                    completed.Seek(-tail.Length, SeekOrigin.End);
+                    completed.ReadExactly(tail);
+                    if (header.AsSpan().SequenceEqual("%PDF-"u8) && Encoding.ASCII.GetString(tail).Contains("%%EOF", StringComparison.Ordinal))
+                    {
+                        return;
+                    }
+                }
+            }
+            catch (IOException)
+            {
+                // The detached renderer may still own the output. Retry within the shared timeout.
+            }
+            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private sealed class RendererJob : SafeHandleZeroOrMinusOneIsInvalid
+    {
+        private RendererJob() : base(true) { }
+
+        internal static RendererJob Attach(Process process)
+        {
+            var result = CreateJobObject(IntPtr.Zero, null);
+            var limits = new JobLimits { Basic = new BasicLimits { LimitFlags = 0x00002000 } };
+            if (result.IsInvalid || !SetInformationJobObject(result, 9, ref limits, (uint)Marshal.SizeOf<JobLimits>()) || !AssignProcessToJobObject(result, process.Handle))
+            {
+                result.Dispose();
+                try
+                {
+                    process.Kill(true);
+                }
+                catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+                throw new IOException("Windows could not bind the PDF renderer lifetime to HeyBuddy.");
+            }
+            return result;
+        }
+
+        protected override bool ReleaseHandle() => CloseHandle(handle);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct BasicLimits
+        {
+            public long ProcessTime, JobTime;
+            public uint LimitFlags;
+            public UIntPtr MinWorkingSet, MaxWorkingSet;
+            public uint ActiveProcessLimit;
+            public UIntPtr Affinity;
+            public uint PriorityClass, SchedulingClass;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IoCounters
+        {
+            public ulong ReadOperation, WriteOperation, OtherOperation, ReadBytes, WriteBytes, OtherBytes;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JobLimits
+        {
+            public BasicLimits Basic;
+            public IoCounters Io;
+            public UIntPtr ProcessMemory, JobMemory, PeakProcessMemory, PeakJobMemory;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        private static extern RendererJob CreateJobObject(IntPtr attributes, string? name);
+
+        [DllImport("kernel32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetInformationJobObject(RendererJob job, int informationClass, ref JobLimits info, uint length);
+
+        [DllImport("kernel32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool AssignProcessToJobObject(RendererJob job, IntPtr process);
+
+        [DllImport("kernel32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CloseHandle(IntPtr handle);
+    }
+
     private static void WritePdf(string path, string title, string content)
     {
         if (ContainsRtl(title + content))

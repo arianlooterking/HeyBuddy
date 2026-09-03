@@ -6,6 +6,6 @@ Run after the shared desktop build is free:
 dotnet run --project scripts/settings-controls-smoke/SettingsControlsSmoke.csproj -c Release -- artifacts/settings-controls-smoke
 ```
 
-The fixture uses an unshown WPF window and fresh isolated settings. It exercises the recorder's key-processing and release paths without sending native keyboard input or starting global hooks. It verifies modifier bindings and bare F1–F24 against the actual parser, cancellation and physical release after focus loss, reserved/duplicate validation, and custom-color persistence and preview. The full Windows palette is constructed and inspected, never shown. No microphone, model, full Settings Save, startup registration or owner data is used.
+The fixture uses an unshown WPF window and fresh isolated settings. It exercises the recorder's key-processing and release paths without sending native keyboard input or starting global hooks. It verifies modifier bindings, bare F1–F24, letters, digits, Space, Enter, navigation keys, and punctuation against the actual parser. It also checks cancellation, physical release after focus loss, repeat-key safety, reserved and duplicate validation, and custom-color persistence and preview. The full Windows palette is constructed and inspected, never shown. No microphone, model, full Settings Save, startup registration or owner data is used.
 
 `results.json` records the checks and `controls.png` captures an off-screen render. Real keyboard capture and the native color dialog still need a separate coordinated desktop UI check.

@@ -13,10 +13,27 @@ public enum HotkeyGesture
 {
     Pressed, Released, DoubleTap
 }
+
+internal static class ShortcutKeyPolicy
+{
+    internal static bool IsBindable(Forms.Keys key)
+    {
+        var virtualKey = (uint)key;
+        return Enum.IsDefined(key) && virtualKey is > 0 and <= 254 && virtualKey is not (
+            0x01 or 0x02 or 0x04 or 0x05 or 0x06 or // Mouse buttons.
+            0x10 or 0x11 or 0x12 or 0x5b or 0x5c or // Generic modifiers and Windows keys.
+            0xa0 or 0xa1 or 0xa2 or 0xa3 or 0xa4 or 0xa5 or // Left/right modifier keys.
+            0xe5 or 0xe7); // IME process and synthetic packet input.
+    }
+
+    internal static bool CanUseWithoutModifiers(Forms.Keys key) => key is not (Forms.Keys.Escape or Forms.Keys.Tab);
+}
+
 public sealed class HotkeyManager : IDisposable
 {
     private readonly Dictionary<ShortcutAction, Shortcut> shortcuts = new();
     private readonly Dictionary<uint, ShortcutAction> held = new();
+    private readonly HashSet<uint> physicalKeysDown = [];
     private readonly Dictionary<ShortcutAction, long> previousTap = new();
     private readonly NativeMethods.HookProc keyboardCallback;
     private readonly NativeMethods.HookProc mouseCallback;
@@ -71,8 +88,8 @@ public sealed class HotkeyManager : IDisposable
                 var up = wParam == 0x101 || wParam == 0x105;
                 if (down)
                 {
-                    if (held.ContainsKey(data.VkCode))
-                        return 1;
+                    if (!physicalKeysDown.Add(data.VkCode))
+                        return held.ContainsKey(data.VkCode) ? 1 : NativeMethods.CallNextHookEx(keyboardHook, code, wParam, lParam);
                     foreach (var (action, shortcut) in shortcuts)
                     {
                         if (!shortcut.Matches(data.VkCode))
@@ -85,10 +102,14 @@ public sealed class HotkeyManager : IDisposable
                         return 1;
                     }
                 }
-                else if (up && held.Remove(data.VkCode, out var action))
+                else if (up)
                 {
-                    Dispatch(() => ActionInvoked?.Invoke(action, HotkeyGesture.Released));
-                    return 1;
+                    physicalKeysDown.Remove(data.VkCode);
+                    if (held.Remove(data.VkCode, out var action))
+                    {
+                        Dispatch(() => ActionInvoked?.Invoke(action, HotkeyGesture.Released));
+                        return 1;
+                    }
                 }
             }
         }
@@ -115,6 +136,7 @@ public sealed class HotkeyManager : IDisposable
             NativeMethods.UnhookWindowsHookEx(mouseHook);
         keyboardHook = mouseHook = 0;
         held.Clear();
+        physicalKeysDown.Clear();
         GC.SuppressFinalize(this);
     }
     private sealed record Shortcut(uint Key, bool Control, bool Alt, bool Shift, bool Win)
@@ -122,13 +144,13 @@ public sealed class HotkeyManager : IDisposable
         internal static Shortcut Parse(string value)
         {
             var parts = value.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (parts.Length == 0 || !Enum.TryParse<Forms.Keys>(parts[^1], true, out var key) || (uint)key is 0 or > 254 or 0x10 or 0x11 or 0x12 or 0x5b or 0x5c || !Enum.IsDefined(key))
-                throw new ArgumentException($"Invalid shortcut: {value}. Use F1–F24 or modifiers plus a key, for example Ctrl+Alt+Space.");
+            if (parts.Length == 0 || !Enum.TryParse<Forms.Keys>(parts[^1], true, out var key) || !ShortcutKeyPolicy.IsBindable(key))
+                throw new ArgumentException($"Invalid shortcut: {value}. Choose one non-modifier key or a key combination, for example F8, Space, A or Ctrl+Alt+D.");
             var modifiers = parts[..^1];
             if (modifiers.Any(p => !new[] { "Ctrl", "Control", "Alt", "Shift", "Win" }.Contains(p, StringComparer.OrdinalIgnoreCase)))
                 throw new ArgumentException($"Unknown shortcut modifier in {value}.");
-            if (modifiers.Length == 0 && key is not (>= Forms.Keys.F1 and <= Forms.Keys.F24))
-                throw new ArgumentException($"Invalid shortcut: {value}. Only F1–F24 can be used without a modifier, so normal typing remains available.");
+            if (modifiers.Length == 0 && !ShortcutKeyPolicy.CanUseWithoutModifiers(key))
+                throw new ArgumentException($"Invalid shortcut: {value}. Escape cancels shortcut recording and Tab moves between controls; add a modifier to use either key.");
             bool Has(string modifier) => modifiers.Contains(modifier, StringComparer.OrdinalIgnoreCase);
             return new((uint)key, Has("Ctrl") || Has("Control"), Has("Alt"), Has("Shift"), Has("Win"));
         }

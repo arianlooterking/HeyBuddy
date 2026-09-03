@@ -69,7 +69,7 @@ public partial class MainWindow
 /// <summary>Records through focused WPF input only. It never sends keys or installs a hook.</summary>
 internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
 {
-    internal const string Instructions = "Click to record, or focus this field and press Enter. Press F1–F24, or hold Ctrl, Alt, Shift or Win with another key, then release. Escape cancels; modifier+Escape can be recorded. Save settings to apply.";
+    internal const string Instructions = "Click to record, or focus this field and press Enter. Press one key by itself, or hold Ctrl, Alt, Shift or Win with another key, then release. Escape cancels and Tab moves to the next control; either can still be used with a modifier. Save settings to apply.";
     private readonly Func<bool> begin;
     private readonly Action end;
     private readonly Action<string> report;
@@ -136,7 +136,7 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
         Text = "Press a shortcut…";
         SetResourceReference(BorderBrushProperty, "Accent");
         releaseTimer.Start();
-        report("Listening for a shortcut. Press a function key or a modifier plus a key. Escape cancels. HeyBuddy shortcuts are paused until all keys are released.");
+        report("Listening for a shortcut. Press one key or a key combination. Escape cancels. HeyBuddy shortcuts are paused until all keys are released.");
     }
 
     internal bool RecordKeyDown(Key key, ModifierKeys modifiers)
@@ -166,8 +166,8 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
         }
         if (!TryFormat(key, modifiers, out var binding))
         {
-            Text = "Press F1–F24 or a modifier + key";
-            report("Use F1–F24 alone, or Ctrl, Alt, Shift or Win plus another key. Bare letters remain available for normal typing.");
+            Text = "Press one key or a key combination";
+            report("Choose a keyboard key. Ctrl, Alt, Shift and Win cannot be shortcuts by themselves; Escape and Tab alone keep their normal Settings behavior.");
             return true;
         }
         try
@@ -211,19 +211,25 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
         releaseTimer.Stop();
         ClearValue(BorderBrushProperty);
         end();
-        report(accepted ? $"Recorded {Text}. Save settings to apply it." : "Shortcut recording cancelled. The previous shortcut is kept.");
+        report(accepted
+            ? Text.Contains('+', StringComparison.Ordinal)
+                ? $"Recorded {Text}. Save settings to apply it."
+                : $"Recorded {Text} as a global single-key shortcut. While HeyBuddy runs, {Text} will trigger this action instead of typing normally. Save settings to apply it."
+            : "Shortcut recording cancelled. The previous shortcut is kept.");
     }
 
     internal static bool TryFormat(Key key, ModifierKeys modifiers, out string binding)
     {
         binding = "";
-        if (modifiers == ModifierKeys.None && key is not (>= Key.F1 and <= Key.F24) ||
-            (modifiers & ~(ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift | ModifierKeys.Windows)) != 0 || IsModifier(key))
+        if ((modifiers & ~(ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift | ModifierKeys.Windows)) != 0 || IsModifier(key))
             return false;
         var virtualKey = KeyInterop.VirtualKeyFromKey(key);
-        if (virtualKey is <= 0 or > 254 || !Enum.IsDefined((FormsKeys)virtualKey))
+        var formsKey = (FormsKeys)virtualKey;
+        if (!ShortcutKeyPolicy.IsBindable(formsKey))
             return false;
-        binding = ModifierText(modifiers) + ((FormsKeys)virtualKey).ToString();
+        if (modifiers == ModifierKeys.None && !ShortcutKeyPolicy.CanUseWithoutModifiers(formsKey))
+            return false;
+        binding = ModifierText(modifiers) + formsKey;
         return true;
     }
 
@@ -242,7 +248,7 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
             };
         if (parts.Length == 0 || !Enum.TryParse<FormsKeys>(parts[^1], true, out var formsKey) ||
             !TryFormat(KeyInterop.KeyFromVirtualKey((int)formsKey), modifiers, out _))
-            throw new ArgumentException($"Invalid shortcut: {binding}. Use F1–F24 or a modifier plus a key, for example Ctrl+Alt+F8.");
+            throw new ArgumentException($"Invalid shortcut: {binding}. Choose one non-modifier key or a key combination, for example F8, Space, A or Ctrl+Alt+D.");
         var reserved = (modifiers & ModifierKeys.Windows) != 0 && formsKey == FormsKeys.L ||
             modifiers == (ModifierKeys.Control | ModifierKeys.Alt) && formsKey == FormsKeys.Delete ||
             modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && formsKey == FormsKeys.Escape ||

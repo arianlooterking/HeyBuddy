@@ -6,7 +6,7 @@ HeyBuddy is a local-first Windows desktop assistant for conversation, dictation,
 
 HeyClicky 1.0.48 is the feature reference. HeyBuddy is an independent Windows implementation based on observed behavior and the older [MIT-licensed Clicky repository](https://github.com/farzaa/clicky); it does not contain the Mac application or its private services.
 
-> **Current release: 0.2.0.** The per-user upgrade and installed payload have been verified on the target PC. Local AI, speech, documents, history, and selected Windows actions work. An approved Auto task typed an exact marker into Notepad and the executor verified the resulting text. Human microphone acceptance, authenticated account connectors, and the broader cross-application matrix remain open. See [what has actually been validated](docs/validation.md).
+> **Current release: 0.2.1.** Each of the four global actions can use an individually chosen single keyboard key or a key combination. Local AI, speech, documents, history, and selected Windows actions work; the last full installed interaction record is retained separately from the new shortcut fixture evidence. Human microphone acceptance, authenticated account connectors, and the broader cross-application matrix remain open. See [what has actually been validated](docs/validation.md).
 
 ## Screenshot
 
@@ -18,8 +18,8 @@ This is a sanitized 0.2.0 diagnostic render of the real WPF interface. It is lay
 
 The release process creates two files under `artifacts/release/`:
 
-- `HeyBuddy-0.2.0-Setup-x64.exe` — per-user Windows installer.
-- `HeyBuddy-0.2.0-win-x64.zip` — portable, self-contained application.
+- `HeyBuddy-0.2.1-Setup-x64.exe` — per-user Windows installer.
+- `HeyBuddy-0.2.1-win-x64.zip` — portable, self-contained application.
 
 `artifacts/` is intentionally excluded from Git. Publish those two files with `SHA256SUMS.txt` on the matching GitHub Release rather than committing binaries. Exact outer-package hashes are kept in that release asset and are not duplicated inside packaged documentation, since changing a packaged document changes the package hashes.
 
@@ -84,7 +84,9 @@ Default shortcuts are configurable:
 | Open the agent composer | `Ctrl+Alt+A` |
 | Emergency stop | `Ctrl+Alt+Escape` |
 
-In **Settings → Keyboard shortcuts**, click a field and press a function key from F1–F24 or a modifier combination. Escape cancels recording. Duplicate shortcuts and reserved Windows combinations are rejected, and nothing changes until settings are saved.
+In **Settings → Keyboard shortcuts**, click any action field and press one key by itself or a key combination. Single letters, numbers, function keys, Space, Enter, navigation keys, and punctuation are supported. Escape alone cancels recording and Tab alone keeps keyboard navigation; add a modifier if you want to use either. Modifier-only, mouse, synthetic, duplicate, and reserved Windows shortcuts are rejected. Nothing changes until settings are saved.
+
+A single-key shortcut is global while HeyBuddy runs. If you assign `A`, `Space`, or another ordinary key, HeyBuddy captures it for that action and the key will not type normally in other applications. Function keys or key combinations are better defaults when you still need normal typing.
 
 In **Settings → Screen and companion**, open **Choose from color palette…** for the full Windows color picker with Red, Green, and Blue fields. You can also enter an exact hex value. Cancel preserves the current color; confirming applies and saves it. Companion size, reduced motion, screen source, image quality, microphone, output, voice, speed, model paths, GPU limits, retention, and startup behavior are also configurable.
 
@@ -140,13 +142,13 @@ The latest persisted source checks include:
 - Runtime: 51/51 tests without paid calls or owner cloud keys.
 - Connectors: 12/12 protocol and policy tests, plus 10/10 connector UI checks without owner accounts.
 - Conversation routing: 41/41 checks.
-- Shortcut and color controls: 39/39 checks; the installed shortcut field also physically captured and canceled an F8 edit.
+- Shortcut and color controls: 54/54 non-interactive checks, including bare letters, digits, Space, Enter, navigation, punctuation, duplicates, reserved keys, and repeat-key safety. The prior installed 0.2.0 field also physically captured and canceled an F8 edit; a live global single-letter shortcut remains unclaimed.
 - Native speech/input: 19/19 fixture checks, plus generated multilingual diagnostics. These do not replace a human microphone test.
 - Installed-app catalog: 18/18 read-only checks.
 - Hosted Calculator identity: 26 checks with the already-open app and no input sent by the harness.
 - Main-window rendering: 17/17 desktop, compact, app-picker, and Persian RTL checks.
 - NuGet vulnerability scan: zero vulnerable package entries across ten projects at the recorded audit time.
-- Installed 0.2.0 upgrade: successful payload and data-preservation verification. Exact outer-package hashes are supplied in the GitHub Release `SHA256SUMS.txt` asset.
+- Installed 0.2.0 baseline upgrade: successful payload and data-preservation verification. Exact outer-package hashes are supplied in that GitHub Release's `SHA256SUMS.txt` asset.
 
 The installed UI displayed 0.2.0 and reached local-model Ready. Exact Auto requests brought existing Calculator and Telegram windows forward with one verified action each; no private Telegram content was read. A separate installed Auto run found `heybuddy-typing-check.txt - Notepad` and showed a `desktop_type` approval preview containing the exact marker `[HEYBUDDY-LIVE-VERIFY-20260903]`. Its first typing attempt failed closed because the control did not expose verifiable editable text. Auto refreshed the snapshot and completed one bounded retry; the five-action run ended with `performed=true`, `targetVerified=true`, `outcomeVerified=true`, and `foregroundChanged=false`. A later independent visual reread was stopped when user input was detected, so it is not claimed as separate evidence. A human microphone sample remains pending. Authenticated account connectors, Office application control, global hold/double-tap shortcuts, and mixed-DPI interaction also need broader live validation.
 
@@ -162,7 +164,7 @@ dotnet build Clicky.slnx --configuration Release
 dotnet test Clicky.slnx --configuration Release
 dotnet format Clicky.slnx --verify-no-changes
 pwsh -File scripts/verify.ps1 -NativeFixtures
-pwsh -File scripts/release.ps1 -Version 0.2.0
+pwsh -File scripts/release.ps1 -Version 0.2.1
 ```
 
 Native focus/input tests create controlled windows and should run only when the desktop is available. The release script creates a self-contained Windows x64 payload, portable ZIP, installer, and checksum manifest. It does not install, publish, or code-sign the result.

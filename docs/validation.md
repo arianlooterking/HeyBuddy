@@ -4,6 +4,14 @@ Date: September 3, 2026. Target: Windows 11 Pro build 28120, i7-12700K, approxim
 
 **This is a tested local build, not a completed full-parity release.** Account-dependent work is separate from the remaining local interactive acceptance checks below. Test fixtures are never presented as authenticated owner accounts.
 
+## 0.2.1 single-key shortcut validation
+
+Version 0.2.1 lets Talk, Dictate, Open agent composer, and Emergency stop each use a distinct single keyboard key or a key combination. The recorder and runtime parser now accept letters, digits, function keys, Space, Enter, navigation keys, and punctuation without requiring a modifier. Plain Escape remains the recorder's cancel action and plain Tab remains available for keyboard navigation; both can be combined with a modifier. Modifier-only keys, mouse/synthetic pseudo-keys, duplicates, and reserved Windows combinations are rejected.
+
+The isolated Settings fixture passes 54/54 checks. It exercises bare `A`, `D7`, `Space`, `Enter`, `Home`, `PageDown`, `Left`, and `OemPlus` through the real recorder and `HotkeyManager` parser, along with release waits, cancellation, aliases, duplicates, invalid keys, and repeat-key state. The fixture does not install the global hook, send physical keyboard input, or prove a physical hold/double-tap flow. A chosen single key is intentionally consumed everywhere while HeyBuddy runs, so the Settings page warns that it will stop typing normally in other applications.
+
+The same release fixes Edge's compatibility relaunch race during Persian PDF export. A focused runtime check produced a complete PDF, returned the temporary Edge process count to zero, and left the temporary profile count unchanged at 8 before and after the run. The renderer now waits for a complete file and owns its process tree so cancellation and cleanup remain bounded.
+
 ## 0.2.0 release and installed validation
 
 Release 0.2.0 was built and installed over the previous copy. The installed executable reports file version 0.2.0.0. Package, upgrade and selected live UI checks are complete; broader interactive acceptance remains open. The earlier records below retain their original scope and should not be read as fresh full-suite evidence for the installed update.
@@ -19,7 +27,7 @@ Current bounded evidence:
 | Runtime/provider suite | The latest Runtime suite passes 51/51, including keyed client reuse, eviction, active-request cancellation and changing cloud-content permission. No account/cloud calls were made. |
 | Connectors | 12/12 protocol and policy tests passed; 10/10 connector UI checks remain unauthenticated fixtures. |
 | Conversation routing | 41/41 checks passed, including the rule that a requested state change cannot complete after read-only inspection alone. |
-| Shortcut and color controls | 39/39 fixture checks passed. The installed shortcut field also physically captured and canceled an F8 edit without changing the saved shortcuts. |
+| Shortcut and color controls | The historical 0.2.0 run passed 39/39 fixture checks. The installed shortcut field also physically captured and canceled an F8 edit without changing the saved shortcuts. The separate 0.2.1 fixture above passes 54/54. |
 | Client retention | 1,000 identical compatible-provider selections retained one provider instead of 1,000; measured allocation fell from 2,105,176 to 928,984 bytes. This check made no network request. |
 | Warm local text / tool selection | Five-sample medians: 412.9 → 430.4 ms for short text, 1,021.9 → 1,036.1 ms for tool selection. These results do not show faster model generation. |
 | Cold local startup | Separate runs measured 26.29 and 8.79 seconds; file cache and machine load differ, so the change cannot be attributed to client reuse. The latter run spent 4.07 seconds verifying and 4.71 seconds loading. Preload moves that wait earlier; it does not remove the work. |

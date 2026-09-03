@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
@@ -47,7 +48,7 @@ internal static class Program
             var recorder = (WpfTextBox)Activator.CreateInstance(RecorderType, PrivateInstance, null,
                 ["Ctrl+Alt+Space", new Func<bool>(() => { starts++; return true; }), new Action(() => ends++), new Action<string>(messages.Add)], null)!;
             bool Listening() => (bool)RecorderType.GetProperty("IsRecording", PrivateInstance)!.GetValue(recorder)!;
-            void KeyDown(Key key, ModifierKeys modifiers) => Invoke(recorder, "RecordKeyDown", key, modifiers);
+            bool KeyDown(Key key, ModifierKeys modifiers) => (bool)Invoke(recorder, "RecordKeyDown", key, modifiers)!;
             void Release(ModifierKeys modifiers, Func<Key, bool>? held = null) => Invoke(recorder, "CompleteAfterRelease", modifiers, held ?? (_ => false));
 
             Verify("Shortcut controls are read-only and keyboard focusable", recorder.IsReadOnly && recorder.Focusable);
@@ -70,11 +71,16 @@ internal static class Program
             Verify("Recorded function binding is accepted by actual HotkeyManager", true);
 
             Invoke(recorder, "BeginRecording");
-            KeyDown(Key.A, ModifierKeys.None);
-            Verify("Unmodified letters are rejected while recording remains active", Listening() && recorder.Text.Contains("modifier", StringComparison.Ordinal));
-            KeyDown(Key.Escape, ModifierKeys.None);
+            KeyDown(Key.LeftCtrl, ModifierKeys.Control);
             Release(ModifierKeys.None);
+            Verify("A modifier key alone remains unavailable", Listening() && recorder.Text.Contains("Ctrl+", StringComparison.Ordinal));
+            var escapeHandled = KeyDown(Key.Escape, ModifierKeys.None);
             Verify("Plain Escape cancels and preserves the previous binding", !Listening() && recorder.Text == "Ctrl+Alt+F8" && ends == 2);
+            Verify("Plain Escape is consumed instead of becoming a shortcut", escapeHandled);
+
+            Invoke(recorder, "BeginRecording");
+            var tabHandled = KeyDown(Key.Tab, ModifierKeys.None);
+            Verify("Plain Tab cancels, preserves the binding and remains available for focus navigation", !tabHandled && !Listening() && recorder.Text == "Ctrl+Alt+F8");
 
             Invoke(recorder, "BeginRecording");
             KeyDown(Key.Escape, ModifierKeys.Control | ModifierKeys.Alt);
@@ -96,7 +102,52 @@ internal static class Program
                 using var parsed = new HotkeyManager(new AppSettings { TalkShortcut = recorder.Text });
                 Verify($"Bare function key {key} records and parses", recorder.Text == key.ToString() && !Listening());
             }
-            Verify("Actual parser rejects bare letters", Refuses(() => { using var parsed = new HotkeyManager(new AppSettings { TalkShortcut = "A" }); }));
+
+            foreach (var (key, expected) in new[]
+            {
+                (Key.A, "A"),
+                (Key.D7, "D7"),
+                (Key.Space, "Space"),
+                (Key.Enter, "Enter"),
+                (Key.Home, "Home"),
+                (Key.PageDown, "Next"),
+                (Key.Left, "Left"),
+                (Key.OemPlus, "Oemplus")
+            })
+            {
+                Invoke(recorder, "BeginRecording");
+                KeyDown(key, ModifierKeys.None);
+                Release(ModifierKeys.None);
+                using var parsed = new HotkeyManager(new AppSettings { TalkShortcut = recorder.Text });
+                Verify($"Bare {expected} records and parses", recorder.Text.Equals(expected, StringComparison.OrdinalIgnoreCase) && !Listening());
+            }
+            Verify("Actual parser rejects generic and sided modifier keys used alone", new[] { "ShiftKey", "ControlKey", "Menu", "LShiftKey", "RShiftKey", "LControlKey", "RControlKey", "LMenu", "RMenu", "LWin", "RWin" }
+                .All(binding => Refuses(() => { using var parsed = new HotkeyManager(new AppSettings { TalkShortcut = binding }); })));
+            Verify("Actual parser rejects mouse and synthetic pseudo-keys", new[] { "LButton", "RButton", "MButton", "XButton1", "XButton2", "ProcessKey", "Packet" }
+                .All(binding => Refuses(() => { using var parsed = new HotkeyManager(new AppSettings { TalkShortcut = binding }); })));
+            Verify("Actual parser reserves plain Escape for recorder cancellation", Refuses(() => { using var parsed = new HotkeyManager(new AppSettings { TalkShortcut = "Escape" }); }));
+            Verify("Actual parser reserves plain Tab for focus navigation", Refuses(() => { using var parsed = new HotkeyManager(new AppSettings { TalkShortcut = "Tab" }); }));
+            using (var bareKeyManager = new HotkeyManager(new AppSettings { TalkShortcut = "A" }))
+            {
+                var invoked = 0;
+                bareKeyManager.ActionInvoked += (_, _) => Interlocked.Increment(ref invoked);
+                var physicalKeysDown = (HashSet<uint>)typeof(HotkeyManager).GetField("physicalKeysDown", PrivateInstance)!.GetValue(bareKeyManager)!;
+                physicalKeysDown.Add((uint)System.Windows.Forms.Keys.A);
+                var nativeMethods = typeof(MainWindow).Assembly.GetType("Clicky.Windows.Native.NativeMethods")!;
+                var hookDataType = nativeMethods.GetNestedType("KeyboardHookData", BindingFlags.NonPublic)!;
+                var hookData = Activator.CreateInstance(hookDataType)!;
+                hookDataType.GetField("VkCode", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(hookData, (uint)System.Windows.Forms.Keys.A);
+                var hookDataPointer = Marshal.AllocHGlobal(Marshal.SizeOf(hookDataType));
+                try
+                {
+                    Marshal.StructureToPtr(hookData, hookDataPointer, false);
+                    Invoke(bareKeyManager, "OnKeyboard", 0, (nint)0x100, hookDataPointer);
+                    Thread.Sleep(100);
+                    Verify("A repeat cannot become a shortcut after its unmatched first key-down", invoked == 0);
+                    Invoke(bareKeyManager, "OnKeyboard", 0, (nint)0x101, hookDataPointer);
+                }
+                finally { Marshal.FreeHGlobal(hookDataPointer); }
+            }
 
             foreach (var key in new[] { Key.F1, Key.F24, Key.D7, Key.Home, Key.OemPlus, Key.PageDown })
             {
@@ -145,6 +196,8 @@ internal static class Program
             Verify("An unshown Settings fixture never installs hooks after recording", typeof(MainWindow).GetField("hotkeys", PrivateInstance)!.GetValue(window) is null);
             var duplicate = new AppSettings { TalkShortcut = "Control+Alt+D" };
             Verify("Save detects duplicate bindings including modifier aliases", Refuses(() => Invoke(window, "ValidateShortcutSettings", duplicate)));
+            var duplicateBare = new AppSettings { TalkShortcut = "A", DictationShortcut = "a" };
+            Verify("Save detects duplicate bare-key bindings", Refuses(() => Invoke(window, "ValidateShortcutSettings", duplicateBare)));
             var reserved = new AppSettings { TalkShortcut = "Win+L" };
             Verify("Save rejects reserved Windows combinations", Refuses(() => Invoke(window, "ValidateShortcutSettings", reserved)));
             Invoke(window, "ValidateShortcutSettings", services.Settings);
