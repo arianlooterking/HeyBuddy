@@ -37,9 +37,9 @@ public sealed class AgentRunner
     public async Task<AgentRun> RunAsync(string prompt, IModelProvider provider, IReadOnlyList<IToolExecutor> executors,
         string context = "", string? parentId = null, CancellationToken cancellationToken = default, IReadOnlyList<ImageAttachment>? images = null, int contextTokens = 8192,
         bool requireAction = false, bool requireStateChange = false, ActionCompletionRequirement? requiredCompletion = null,
-        Action<AgentRun>? onProgress = null, Action<string>? onText = null, IReadOnlyList<ChatMessage>? previousMessages = null)
+        Action<AgentRun>? onProgress = null, Action<string>? onText = null, IReadOnlyList<ChatMessage>? previousMessages = null, string? persistedPrompt = null)
     {
-        using var state = new RunExecution(this, prompt, parentId, cancellationToken, onProgress);
+        using var state = new RunExecution(this, persistedPrompt ?? prompt, parentId, cancellationToken, onProgress);
         var token = state.Source.Token;
         try
         {

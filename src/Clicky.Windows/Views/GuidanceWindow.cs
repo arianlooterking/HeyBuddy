@@ -6,9 +6,15 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using Clicky.Core;
 using Button = System.Windows.Controls.Button;
+using Brushes = System.Windows.Media.Brushes;
+using Color = System.Windows.Media.Color;
+using ColorConverter = System.Windows.Media.ColorConverter;
+using Orientation = System.Windows.Controls.Orientation;
 using Rectangle = System.Windows.Shapes.Rectangle;
 
 namespace Clicky.Windows.Views;
+
+public sealed record GuidanceStep(int Number, int Total, string Narration, bool Completed);
 
 public sealed class GuidanceWindow : Window
 {
@@ -17,13 +23,21 @@ public sealed class GuidanceWindow : Window
     private readonly Canvas canvas = new();
     private readonly Window controls;
     private readonly TextBlock label;
+    private readonly SolidColorBrush accent;
     private readonly int[] steps;
     private int index;
     private bool paused;
-    public GuidanceWindow(ScreenCapture capture, IReadOnlyList<GuidanceCommand> commands)
+    public event Action<GuidanceStep>? StepAdvanced;
+
+    public GuidanceWindow(ScreenCapture capture, IReadOnlyList<GuidanceCommand> commands) : this(capture, commands, "#386BFF")
+    {
+    }
+
+    public GuidanceWindow(ScreenCapture capture, IReadOnlyList<GuidanceCommand> commands, string color)
     {
         this.capture = capture;
         this.commands = commands;
+        accent = ParseColor(color);
         steps = commands.Select(c => c.Step).Distinct().Order().ToArray();
         Width = capture.Width;
         Height = capture.Height;
@@ -56,25 +70,46 @@ public sealed class GuidanceWindow : Window
     {
         if (paused || index >= steps.Length)
             return;
-        if (commands.Where(c => c.Step == steps[index]).Any(c => Math.Abs(capture.Left + (c.Kind == "arrow" ? c.X2 : c.X) * capture.Width - point.X) < 32 && Math.Abs(capture.Top + (c.Kind == "arrow" ? c.Y2 : c.Y) * capture.Height - point.Y) < 32))
+        if (commands.Where(c => c.Step == steps[index]).Any(c => IsTargetHit(capture, c, point)))
             Next();
+    }
+    internal static bool IsTargetHit(ScreenCapture capture, GuidanceCommand command, System.Drawing.Point point, int tolerance = 42)
+    {
+        var x = command.Kind switch
+        {
+            "arrow" => command.X2,
+            "rectangle" => (command.X + command.X2) / 2,
+            _ => command.X
+        };
+        var y = command.Kind switch
+        {
+            "arrow" => command.Y2,
+            "rectangle" => (command.Y + command.Y2) / 2,
+            _ => command.Y
+        };
+        return Math.Abs(capture.Left + x * capture.Width - point.X) <= tolerance &&
+            Math.Abs(capture.Top + y * capture.Height - point.Y) <= tolerance;
     }
     private void Next()
     {
         if (index + 1 >= steps.Length)
         {
+            StepAdvanced?.Invoke(new(index + 1, steps.Length, "Walkthrough complete.", true));
             Close();
             return;
         }
         index++;
         Draw();
+        var narration = commands.FirstOrDefault(c => c.Step == steps[index] && !string.IsNullOrWhiteSpace(c.Label))?.Label ?? $"Continue with step {index + 1}.";
+        StepAdvanced?.Invoke(new(index + 1, steps.Length, narration, false));
     }
     private void Draw()
     {
         if (steps.Length == 0)
             return;
         canvas.Children.Clear();
-        label.Text = $"Step {index + 1} of {steps.Length}";
+        var instruction = commands.FirstOrDefault(c => c.Step == steps[index] && !string.IsNullOrWhiteSpace(c.Label))?.Label;
+        label.Text = $"Step {index + 1} of {steps.Length}" + (string.IsNullOrWhiteSpace(instruction) ? "" : " · " + instruction);
         foreach (var command in commands.Where(c => c.Step == steps[index]))
         {
             var x = command.X * ActualWidth;
@@ -87,9 +122,9 @@ public sealed class GuidanceWindow : Window
                 "rectangle" => new Rectangle { Width = Math.Max(30, Math.Abs(x2 - x)), Height = Math.Max(30, Math.Abs(y2 - y)), RadiusX = 8, RadiusY = 8 },
                 _ => new Ellipse { Width = command.Kind == "point" ? 28 : 70, Height = command.Kind == "point" ? 28 : 70 }
             };
-            shape.Stroke = new SolidColorBrush(Color.FromRgb(56, 107, 255));
+            shape.Stroke = accent;
             shape.StrokeThickness = 4;
-            shape.Fill = new SolidColorBrush(Color.FromArgb(28, 56, 107, 255));
+            shape.Fill = new SolidColorBrush(Color.FromArgb(28, accent.Color.R, accent.Color.G, accent.Color.B));
             if (command.Kind != "arrow")
             {
                 Canvas.SetLeft(shape, command.Kind == "rectangle" ? Math.Min(x, x2) : x - shape.Width / 2);
@@ -108,6 +143,17 @@ public sealed class GuidanceWindow : Window
                 Canvas.SetTop(note, Math.Clamp(y + 22, 0, Math.Max(0, ActualHeight - 70)));
                 canvas.Children.Add(note);
             }
+        }
+    }
+    private static SolidColorBrush ParseColor(string value)
+    {
+        try
+        {
+            return new((Color)ColorConverter.ConvertFromString(value));
+        }
+        catch (Exception error) when (error is FormatException or NotSupportedException or InvalidOperationException)
+        {
+            return new(Color.FromRgb(56, 107, 255));
         }
     }
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint h, int index);

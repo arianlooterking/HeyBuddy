@@ -57,8 +57,8 @@ public partial class MainWindow
         {
             1 => "Agent runs a task with tools and records its steps. Sensitive actions ask first.",
             2 => "Dictate inserts text into your selected application. Tap Ctrl + Alt + D there, speak, then tap it again.",
-            3 => "Chat only answers and draws guidance. It cannot operate apps or use tools.",
-            _ => "Auto answers questions and carries out tasks. Sensitive actions ask first."
+            3 => "Chat only can see the focused app, answer, and draw guidance. It cannot operate apps or use tools.",
+            _ => "Auto sees the focused app when you Talk, answers questions, and carries out requested tasks. Sensitive actions ask first."
         };
     }
 

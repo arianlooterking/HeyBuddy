@@ -4,6 +4,16 @@ Updated: September 4, 2026. Target: Windows 11 Pro build 28120, i7-12700K, appro
 
 **This is a tested local build, not a completed full-parity release.** Account-dependent work is separate from the remaining local interactive acceptance checks below. Test fixtures are never presented as authenticated owner accounts.
 
+## 0.3.0 focused-app vision, guidance, and control
+
+Version 0.3.0 connects Talk to the application that was focused when recording began and freezes that target for the turn. Each enabled voice turn can include a temporary private window capture; typed English, Persian, and Turkish requests such as “where is…”, “what do you see…”, and “show me how…” can request the same context. The model also receives a bounded map of named, enabled, non-password accessibility controls whose coordinates match the screenshot. Screen pixels, observation IDs, and injected screen instructions are removed after that turn and are not saved as the task prompt. Bounded tool evidence remains in task history when an action actually runs.
+
+Location pointers are aligned back to matching accessible controls, which corrects approximate coordinates from a small vision model. If the model gives a textual location answer without a drawing block, a specific matching accessible control can still supply a circle. Walkthrough overlays show the current instruction, progress when the user clicks the highlighted target, optionally speak the next step, and use the chosen companion color. The overlay and action marker are click-through observers and contain no input path.
+
+For actual owner-requested actions, buttons use Windows accessibility invocation when available; toggles and selectable items use their stateful patterns. A fresh window/snapshot/element identity is still required, the target must be visible and foreground, and the result is checked. A separate ring shows the action location. A controlled fixture verified that the exact button changed from `Count: 0` to `Count: 1` through UI Automation without moving the physical pointer. Stale snapshots, focus changes, password controls, and cancelled input were refused.
+
+The installed Qwen 3.5 4B local stack completed a live screen-guidance run against the sanitized fixture. It returned a valid pointer after 2.8 seconds to first token and 3.8 seconds total in the recorded passing run. The same worker returned local English, Persian, and Turkish text and a structured file tool call, and rejected an unauthenticated loopback request with HTTP 401. This proves the local screen-to-pointer pipeline on that fixture; it does not establish accuracy across every Windows application.
+
 ## 0.2.3 voice shortcut and companion repair
 
 Version 0.2.3 changes Talk and Dictate so a quick tap starts a latched recording and the next tap finishes it. Holding the shortcut for at least 500 ms keeps push-to-talk behavior and finishes on release. This removes the previous quick-tap path that stopped the microphone before the user could speak. The Agent shortcut now restores the main window, selects Agent mode, focuses the composer, and shows a clear ready message. A valid shortcut capture persists immediately instead of depending on the separate page-level Save button.

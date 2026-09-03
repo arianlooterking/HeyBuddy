@@ -51,6 +51,14 @@ internal static class Program
             Verify("The next shortcut press finishes tap-to-toggle recording", Transition(HotkeyGesture.Pressed, true, true, 900) == "Finish");
             Verify("A held voice shortcut finishes when released", Transition(HotkeyGesture.Released, true, false, 700) == "Finish");
             Verify("A release after tap-to-toggle cannot stop recording twice", Transition(HotkeyGesture.Released, true, true, 1000) == "None");
+            bool Capture(bool explicitlyEnabled, bool voiceTurn, bool contextualEnabled, ScreenTurnKind intent) =>
+                (bool)typeof(MainWindow).GetMethod("ShouldCaptureScreen", PrivateStatic)!.Invoke(null, [explicitlyEnabled, voiceTurn, contextualEnabled, intent])!;
+            Verify("Every Talk turn can include its focused app without the persistent Screen toggle", Capture(false, true, true, ScreenTurnKind.None));
+            Verify("Typed location questions include the focused app", Capture(false, false, true, ScreenTurnKind.Locate));
+            Verify("Ordinary typed questions do not capture a screen unexpectedly", !Capture(false, false, true, ScreenTurnKind.None));
+            Verify("The explicit screen toggle always includes the selected screen source", Capture(true, false, false, ScreenTurnKind.None));
+            var locateInstruction = (string)typeof(MainWindow).GetMethod("ScreenInstruction", PrivateStatic)!.Invoke(null, [ScreenTurnKind.Locate, false])!;
+            Verify("Location requests require visual guidance without authorizing a click", locateInstruction.Contains("guidance block", StringComparison.Ordinal) && locateInstruction.Contains("Do not click", StringComparison.Ordinal));
 
             var starts = 0;
             var ends = 0;
@@ -271,6 +279,12 @@ internal static class Program
             Verify("Agent shortcut prepares a visible Agent-mode composer state", ((ComboBox)window.FindName("ModeSelector")).SelectedIndex == 1 && ((FrameworkElement)window.FindName("ChatPage")).Visibility == Visibility.Visible && ((TextBlock)window.FindName("StatusText")).Text.StartsWith("Agent composer ready", StringComparison.Ordinal));
             Invoke(window, "ShowSettings");
             var page = (StackPanel)window.FindName("PageContent");
+            var screenOptions = page.Children.OfType<CheckBox>().Where(control =>
+            {
+                var label = control.Content is TextBlock textBlock ? textBlock.Text : control.Content?.ToString();
+                return label?.Contains("focused app", StringComparison.OrdinalIgnoreCase) == true || label?.Contains("pointers", StringComparison.OrdinalIgnoreCase) == true;
+            }).ToArray();
+            Verify("Screen coaching defaults expose voice context, typed screen context, and visual guidance controls", screenOptions.Length == 3 && screenOptions.All(option => option.IsChecked == true));
             var fields = page.Children.OfType<WpfTextBox>().Where(control => RecorderType.IsInstanceOfType(control)).ToArray();
             Verify("Settings uses four genuine recorder controls", fields.Length == 4 && fields.Select(AutomationProperties.GetName).SequenceEqual(new[] { "Talk", "Dictate", "Open agent composer", "Emergency stop" }));
             Invoke(fields[0], "BeginRecording");

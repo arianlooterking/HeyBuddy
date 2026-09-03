@@ -140,6 +140,21 @@ public sealed class AgentPolicyTests : IDisposable
         Assert.Equal(0, run.Actions);
     }
 
+    [Fact]
+    public async Task TransientModelContextIsUsedButOnlyTheOwnerPromptIsPersisted()
+    {
+        const string privateContext = "Owner request\n<focused_window_context>temporary screen IDs</focused_window_context>";
+        var provider = new ScriptedProvider((_, request, _) =>
+        {
+            Assert.Equal(privateContext, request.Messages.Last().Content);
+            return Task.FromResult(new ModelReply("Understood", []));
+        });
+        var run = await runner.RunAsync(privateContext, provider, [], persistedPrompt: "Owner request");
+        Assert.Equal("Owner request", run.Prompt);
+        Assert.Contains(store.GetHistory(session: run.Id), message => message.Role == "user" && message.Text == "Owner request");
+        Assert.DoesNotContain(store.GetHistory(session: run.Id), message => message.Text.Contains("temporary screen IDs", StringComparison.Ordinal));
+    }
+
     private static ToolDefinition Definition(string name, RiskLevel risk = RiskLevel.ReadOnly) => new(name, "Test tool", JsonSchema.Parse("{\"type\":\"object\"}"), risk);
     [Fact]
     public async Task DiscoveryAddsARegisteredToolWithoutExecutingItAndKeepsItsApproval()

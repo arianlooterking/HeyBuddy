@@ -19,7 +19,7 @@ public static class DictationInserter
                 cancellationToken.ThrowIfCancellationRequested();
                 NativeMethods.RequireForeground(expectedWindow);
                 // Materialize clipboard formats while their owner is available. Failure aborts insertion.
-                var original = Forms.Clipboard.GetDataObject();
+                var original = ClipboardRetry(Forms.Clipboard.GetDataObject, cancellationToken);
                 if (original != null)
                 {
                     var snapshot = new Forms.DataObject();
@@ -31,7 +31,7 @@ public static class DictationInserter
                     }
                     previous = snapshot;
                 }
-                Forms.Clipboard.SetText(text, Forms.TextDataFormat.UnicodeText);
+                ClipboardRetry(() => Forms.Clipboard.SetText(text, Forms.TextDataFormat.UnicodeText), cancellationToken);
                 ours = NativeMethods.GetClipboardSequenceNumber();
                 clipboardSet = true;
                 cancellationToken.ThrowIfCancellationRequested();
@@ -79,4 +79,20 @@ public static class DictationInserter
         thread.Start();
         return result.Task;
     }
+
+    private static T ClipboardRetry<T>(Func<T> operation, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return operation();
+            }
+            catch (System.Runtime.InteropServices.ExternalException) when (attempt < 7) { Thread.Sleep(40); }
+        }
+    }
+
+    private static void ClipboardRetry(Action operation, CancellationToken cancellationToken)
+        => ClipboardRetry(() => { operation(); return true; }, cancellationToken);
 }

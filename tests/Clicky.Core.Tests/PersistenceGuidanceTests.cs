@@ -108,6 +108,32 @@ public sealed class PersistenceGuidanceTests : IDisposable
         Assert.Equal(30, parsed.Commands.Count);
         Assert.All(parsed.Commands, c => Assert.Equal("point", c.Kind));
     }
+
+    [Fact]
+    public void ValidDrawingInAJsonFenceSupportsSmallLocalModelsWithoutHidingOtherJson()
+    {
+        var drawing = GuidanceParser.Parse("Here it is.\n```json\n[{\"kind\":\"circle\",\"x\":0.19,\"y\":0.45,\"label\":\"Increment counter\"}]\n```");
+        Assert.Equal("Here it is.", drawing.Text);
+        Assert.Single(drawing.Commands);
+        Assert.Equal("circle", drawing.Commands[0].Kind);
+
+        var ordinary = GuidanceParser.Parse("```json\n[{\"kind\":\"click\",\"x\":0.19,\"y\":0.45}]\n```");
+        Assert.Empty(ordinary.Commands);
+        Assert.Contains("kind", ordinary.Text);
+    }
+
+    [Theory]
+    [InlineData("Where is the export button?", ScreenTurnKind.Locate)]
+    [InlineData("Show me where to click", ScreenTurnKind.Locate)]
+    [InlineData("What do you see on my screen?", ScreenTurnKind.Inspect)]
+    [InlineData("Walk me through this app step by step", ScreenTurnKind.Walkthrough)]
+    [InlineData("کدام دکمه را بزنم؟", ScreenTurnKind.Locate)]
+    [InlineData("مرحله به مرحله یادم بده", ScreenTurnKind.Walkthrough)]
+    [InlineData("Bu ekranda ne görüyorsun?", ScreenTurnKind.Inspect)]
+    [InlineData("Bana adım adım öğret", ScreenTurnKind.Walkthrough)]
+    [InlineData("Explain photosynthesis", ScreenTurnKind.None)]
+    public void ScreenIntentRecognizesOwnerRequestsInSupportedLanguages(string request, ScreenTurnKind expected)
+        => Assert.Equal(expected, ScreenTurnIntent.Classify(request));
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

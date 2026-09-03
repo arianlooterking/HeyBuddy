@@ -36,8 +36,11 @@ public partial class MainWindow : Window
     private bool conversationContainsFiles;
     private HotkeyManager? hotkeys;
     private CompanionWindow? companion;
+    private ActionCursorWindow? actionCursor;
     private GuidanceWindow? guidance;
     private ScreenCapture? pendingSketch;
+    private bool voiceScreenContextPending;
+    private nint voiceScreenTargetPending;
     private string? followUpId;
     private readonly DispatcherTimer foregroundTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
 
@@ -48,6 +51,7 @@ public partial class MainWindow : Window
         VersionLabel.Text = "HeyBuddy " + typeof(MainWindow).Assembly.GetName().Version?.ToString(3);
         app.Agents.RequestApproval = RequestApproval;
         app.Speech.AudioLevel += UpdateMicrophoneLevel;
+        app.Desktop.ActionVisual += ShowDesktopActionVisual;
         app.Speech.Error += SetStatus;
         app.Factory.ModelManager.StatusChanged += ModelStatusChanged;
         app.Agents.RunChanged += run => Dispatcher.BeginInvoke(() => { if (currentPage == "tasks") ShowTasks(); });
@@ -246,6 +250,8 @@ public partial class MainWindow : Window
             {
                 Composer.Text = text;
                 ModeSelector.SelectedIndex = recordingMode;
+                voiceScreenContextPending = app.Settings.VoiceScreenContext;
+                voiceScreenTargetPending = destination;
                 await SendAsync();
             }
         }
@@ -287,7 +293,7 @@ public partial class MainWindow : Window
         var budget = Math.Clamp((app.Settings.ContextSize - 2800) / Math.Max(2, attachments.Count * 2), 150, 1800);
         return "Local imported copy: " + imported.Path + "\n" + ContextBudget.ExcerptContext(imported.Text, budget);
     }
-    private async Task<ScreenCapture?> CaptureContextAsync()
+    private async Task<ScreenCapture?> CaptureContextAsync(nint expectedWindow = 0)
     {
         if (app.Settings.CaptureMode == "region")
         {
@@ -299,7 +305,7 @@ public partial class MainWindow : Window
         }
         var mode = app.Settings.CaptureMode;
         var monitor = app.Settings.SelectedMonitor;
-        var expected = targetWindow;
+        var expected = expectedWindow != 0 ? expectedWindow : targetWindow;
         return await Task.Run(() => mode == "monitor" ? app.Capture.CaptureMonitor(monitor) : expected != 0 ? app.Capture.CaptureWindow(expected) : throw new InvalidOperationException("Focus the application you want to share, then return to HeyBuddy or use its talk shortcut."), operation.Token).WaitAsync(TimeSpan.FromSeconds(8), operation.Token);
     }
     private WpfTextBox AddMessage(string role, string text)
@@ -417,9 +423,12 @@ public partial class MainWindow : Window
         app.Speech.Stop();
         recording = false;
         latching = false;
+        voiceScreenContextPending = false;
+        voiceScreenTargetPending = 0;
         TalkButton.Content = "Talk";
         SetMicrophoneActive(false);
         companion?.SetReply("");
+        actionCursor?.Hide();
         guidance?.Close();
         guidance = null;
         SetStatus("Stopped. No further actions will run.");
@@ -432,9 +441,11 @@ public partial class MainWindow : Window
         hotkeys?.Dispose();
         foregroundTimer.Stop();
         app.Speech.AudioLevel -= UpdateMicrophoneLevel;
+        app.Desktop.ActionVisual -= ShowDesktopActionVisual;
         app.Speech.Error -= SetStatus;
         app.Factory.ModelManager.StatusChanged -= ModelStatusChanged;
         companion?.Close();
+        actionCursor?.Close();
         guidance?.Close();
         Close();
     }
@@ -456,6 +467,18 @@ public partial class MainWindow : Window
             return;
         }
         StatusText.Text = message;
+    }
+    private void ShowDesktopActionVisual(DesktopActionVisual visual)
+    {
+        if (Dispatcher.HasShutdownStarted)
+            return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            actionCursor ??= new ActionCursorWindow(app.Settings.CompanionColor);
+            actionCursor.ShowAt(visual.X, visual.Y, app.Settings.CompanionColor);
+            companion?.SetState("Acting");
+            SetStatus(string.IsNullOrWhiteSpace(visual.Label) ? "Acting on the verified control…" : "Acting on “" + visual.Label + "”…");
+        });
     }
     private async Task Guard(Func<Task> work)
     {

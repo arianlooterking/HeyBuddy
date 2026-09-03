@@ -77,6 +77,15 @@ internal static class Program
             canvas.Strokes.Add(stroke);
             var result = sketch.RenderCapture();
             Assert(result.Width == width && result.Height == height && result.Left == 3840 && result.Top == -505 && result.MonitorId == capture.MonitorId, "Sketch export changed capture dimensions/origin.");
+            Assert(GuidanceWindow.IsTargetHit(capture, new GuidanceCommand("point", 0.25, 0.5, Label: "Point", Step: 1), new(4140, -105)), "Point guidance did not match its physical display coordinates.");
+            Assert(GuidanceWindow.IsTargetHit(capture, new GuidanceCommand("rectangle", 0.2, 0.2, 0.4, 0.4, Label: "Area", Step: 1), new(4200, -265)), "Rectangle guidance did not advance from its center target.");
+            Assert(!GuidanceWindow.IsTargetHit(capture, new GuidanceCommand("point", 0.25, 0.5, Label: "Point", Step: 1), new(4600, 200)), "Guidance advanced for an unrelated click.");
+            var observedButton = new DesktopObservationElement("e1", "Increment counter", "Button", "increment", 0.19, 0.45, 0.05, 0.39, 0.28, 0.12);
+            var observation = new DesktopObservation("w1", "s1", "Fixture", "Test", capture.Left, capture.Top, capture.Width, capture.Height, [observedButton], false);
+            var aligned = GuidanceAlignment.Align([new("circle", 0.8, 0.8, Label: "Increment counter button")], observation, ScreenTurnKind.Locate, "Where is the counter?");
+            Assert(aligned[0].X == observedButton.X && aligned[0].Y == observedButton.Y, "Model guidance was not aligned to the matching accessible control.");
+            var fallback = GuidanceAlignment.Align([], observation, ScreenTurnKind.Locate, "Where is the counter?");
+            Assert(fallback.Count == 1 && fallback[0].Kind == "circle" && fallback[0].X == observedButton.X, "A location request did not recover a pointer from the accessibility map.");
             using var renderedPng = new MemoryStream(Convert.FromBase64String(result.Base64));
             var rendered = new System.Windows.Media.Imaging.PngBitmapDecoder(renderedPng, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames[0];
             var renderedPixels = new byte[width * height * 4];
@@ -339,6 +348,18 @@ internal static class Program
                 Assert(capture.Left == window.Left && capture.Top == window.Top, "Capture coordinates differ from physical window bounds.");
                 return Task.CompletedTask;
             });
+            await Check("Focused-window context maps current controls to screen coordinates", () =>
+            {
+                var capture = captures.CaptureWindow((nint)window.Handle);
+                var observation = desktop.ObserveWindow((nint)window.Handle, capture);
+                Assert(observation is not null && observation.WindowId == window.Id, "The focused window was not mapped to its registered identity.");
+                var mappedObservation = observation ?? throw new InvalidOperationException("Focused-window observation was unexpectedly unavailable.");
+                var button = mappedObservation.Elements.Single(element => element.Name == "Increment counter");
+                Assert(button.X is > 0 and < 1 && button.Y is > 0 and < 1 && button.Width is > 0 and <= 1 && button.Height is > 0 and <= 1,
+                    "The control coordinates were not normalized to the supplied screen image.");
+                Assert(!string.IsNullOrWhiteSpace(mappedObservation.SnapshotId), "The mapped context did not retain a usable snapshot ID.");
+                return Task.CompletedTask;
+            });
             await Check("Private capture preserves physical coordinates on the second monitor", async () =>
             {
                 var secondary = captures.GetMonitors().FirstOrDefault(m => !m.IsPrimary);
@@ -416,9 +437,11 @@ internal static class Program
                 Assert(result.Success, result.Message);
                 Assert(ReadText(window) == "Seed verified", "Accessible control text did not match.");
             });
-            await Check("Physical click reaches only the verified control", async () =>
+            await Check("Accessibility click reaches only the verified control and reports its action marker", async () =>
             {
                 Activate(window);
+                DesktopActionVisual? visual = null;
+                desktop.ActionVisual += observed => visual = observed;
                 var snapshot = desktop.Snapshot(window.Id);
                 var target = snapshot.Elements.First(e => e.Name == "Increment counter");
                 var result = await desktop.ExecuteAsync("desktop_click", Args(new
@@ -430,6 +453,7 @@ internal static class Program
                 Assert(result.Success, result.Message);
                 var after = desktop.Snapshot(window.Id);
                 Assert(after.Elements.Any(e => e.Name == "Count: 1"), "Click outcome was not visible in accessibility state.");
+                Assert(visual is { Kind: "click", Label: "Increment counter" } && visual.X > 0 && visual.Y > 0, "The separate action marker did not receive the verified target.");
             });
             await Check("Stale snapshot cannot be reused for another action", async () =>
             {

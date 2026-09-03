@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?$')]
-    [string]$Version = '0.2.3',
+    [string]$Version = '0.3.0',
     [ValidateSet('Release', 'Debug')]
     [string]$Configuration = 'Release',
     [switch]$PortableOnly,

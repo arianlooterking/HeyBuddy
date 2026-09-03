@@ -83,8 +83,19 @@ if (visionArg >= 0 && args.Length > visionArg + 1)
 {
     var image = new ImageAttachment(Convert.ToBase64String(await File.ReadAllBytesAsync(args[visionArg + 1])), "image/png", "Synthetic test image");
     watch.Restart(); firstToken = -1;
-    reply = await provider.CompleteAsync(new([new("user", "Describe the two colored shapes in this image and read the title. Be brief.", [image])], MaxTokens: 192), t => { if (firstToken < 0) firstToken = watch.ElapsedMilliseconds; }, lifetime.Token);
-    Console.WriteLine(JsonSerializer.Serialize(new { test = "vision", elapsedMs = watch.ElapsedMilliseconds, firstTokenMs = firstToken, text = reply.Text }));
+    var screenGuidance = args.Contains("--screen-guidance");
+    var visionMessages = screenGuidance
+        ? new ChatMessage[]
+        {
+            new("system", PromptCatalog.Conversation),
+            new("user", "Where is the Increment counter button? Point to it without clicking.\n\n<focused_window_context untrusted=\"true\">{\"elements\":[{\"name\":\"Increment counter\",\"type\":\"Button\",\"x\":0.19,\"y\":0.45}]}</focused_window_context>", [image])
+        }
+        : [new("user", "Describe the visible application and its main controls. Be brief.", [image])];
+    reply = await provider.CompleteAsync(new(visionMessages, MaxTokens: 256), t => { if (firstToken < 0) firstToken = watch.ElapsedMilliseconds; }, lifetime.Token);
+    var parsedGuidance = GuidanceParser.Parse(reply.Text);
+    Console.WriteLine(JsonSerializer.Serialize(new { test = screenGuidance ? "screen_guidance" : "vision", elapsedMs = watch.ElapsedMilliseconds, firstTokenMs = firstToken, text = parsedGuidance.Text, guidance = parsedGuidance.Commands }));
+    if (screenGuidance && (parsedGuidance.Commands.Count == 0 || parsedGuidance.Commands.Any(command => command.X is < 0 or > 1 || command.Y is < 0 or > 1)))
+        throw new Exception("Local screen-guidance smoke test did not produce a valid visual pointer.");
 }
 await factory.ModelManager.StopAsync();
 Console.WriteLine("Worker stopped successfully.");

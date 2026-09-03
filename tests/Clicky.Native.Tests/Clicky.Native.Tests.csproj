@@ -13,6 +13,7 @@
     <Compile Include="../../src/Clicky.Windows/Native/**/*.cs" Link="Native/%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="../../src/Clicky.Windows/Speech/**/*.cs" Link="Speech/%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="../../src/Clicky.Windows/Views/SketchWindow.cs" Link="Views/SketchWindow.cs" />
+    <Compile Include="../../src/Clicky.Windows/Views/GuidanceWindow.cs" Link="Views/GuidanceWindow.cs" />
     <PackageReference Include="NAudio" Version="2.3.0" />
     <PackageReference Include="Whisper.net" Version="1.9.1" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />

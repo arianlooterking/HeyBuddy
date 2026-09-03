@@ -10,6 +10,12 @@ namespace Clicky.Windows.Native;
 public sealed record DesktopWindow(string Id, long Handle, string Title, string Application, int ProcessId, bool Foreground, int Left, int Top, int Width, int Height, uint Dpi, bool IsMinimized = false, int? HostProcessId = null, long? ContentHandle = null, string? AppUserModelId = null);
 public sealed record DesktopElement(string Id, string Name, string Type, string AutomationId, bool Enabled, bool Password, int Left, int Top, int Width, int Height);
 public sealed record DesktopSnapshot(string WindowId, string SnapshotId, IReadOnlyList<DesktopElement> Elements, bool Truncated);
+public sealed record DesktopObservationElement(string ElementId, string Name, string Type, string AutomationId,
+    double X, double Y, double Left, double Top, double Width, double Height);
+public sealed record DesktopObservation(string WindowId, string SnapshotId, string Title, string Application,
+    int CaptureLeft, int CaptureTop, int CaptureWidth, int CaptureHeight,
+    IReadOnlyList<DesktopObservationElement> Elements, bool Truncated);
+public sealed record DesktopActionVisual(string Kind, int X, int Y, string Label);
 
 /// <summary>Only registered tools perform input. Guidance rendering has no dependency on this executor.</summary>
 public sealed class WindowsDesktopTools : IToolExecutor
@@ -20,6 +26,7 @@ public sealed class WindowsDesktopTools : IToolExecutor
     private sealed record SnapshotState(string Id, nint Handle, DateTimeOffset Created, Dictionary<string, AutomationElement> Elements);
     private readonly SemaphoreSlim inputLock = new(1, 1);
     private readonly DesktopAppCatalog applications = new();
+    public event Action<DesktopActionVisual>? ActionVisual;
     public IReadOnlyList<ToolDefinition> Tools
     {
         get;
@@ -116,6 +123,45 @@ public sealed class WindowsDesktopTools : IToolExecutor
         }
         return output;
     }
+
+    /// <summary>Creates a short-lived accessibility map whose normalized coordinates match the supplied screen image.</summary>
+    public DesktopObservation? ObserveWindow(nint handle, ScreenCapture capture, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var window = ListWindows().FirstOrDefault(entry => entry.Handle == handle.ToInt64());
+        if (window is null)
+            return null;
+        var snapshot = Snapshot(window.Id, cancellationToken);
+        var right = (long)capture.Left + capture.Width;
+        var bottom = (long)capture.Top + capture.Height;
+        var elements = snapshot.Elements
+            .Where(element => element.Enabled && !element.Password && element.Width > 0 && element.Height > 0 &&
+                (long)element.Left < right && (long)element.Top < bottom &&
+                (long)element.Left + element.Width > capture.Left && (long)element.Top + element.Height > capture.Top &&
+                (!string.IsNullOrWhiteSpace(element.Name) || !string.IsNullOrWhiteSpace(element.AutomationId)))
+            .OrderBy(element => element.Top)
+            .ThenBy(element => element.Left)
+            .Take(120)
+            .Select(element => new DesktopObservationElement(
+                element.Id,
+                element.Name.Length > 160 ? element.Name[..160] : element.Name,
+                element.Type,
+                element.AutomationId.Length > 120 ? element.AutomationId[..120] : element.AutomationId,
+                Normalize(element.Left + element.Width / 2d, capture.Left, capture.Width),
+                Normalize(element.Top + element.Height / 2d, capture.Top, capture.Height),
+                Normalize(element.Left, capture.Left, capture.Width),
+                Normalize(element.Top, capture.Top, capture.Height),
+                Normalize(element.Width, 0, capture.Width),
+                Normalize(element.Height, 0, capture.Height)))
+            .ToArray();
+        return new(window.Id, snapshot.SnapshotId, window.Title, window.Application,
+            capture.Left, capture.Top, capture.Width, capture.Height, elements,
+            snapshot.Truncated || snapshot.Elements.Count > elements.Length);
+    }
+
+    private static double Normalize(double value, double origin, double size)
+        => Math.Round(Math.Clamp((value - origin) / size, 0, 1), 4, MidpointRounding.AwayFromZero);
+
     public Task<IReadOnlyList<DesktopApp>> ListAppsAsync(string? query = null, CancellationToken cancellationToken = default) => applications.ListAsync(query, cancellationToken);
     public Task<ToolResult> ActivateWindowAsync(string windowId, CancellationToken cancellationToken = default) => ExecuteAsync("desktop_activate", JsonSerializer.SerializeToElement(new { windowId }), cancellationToken);
     private async Task<ToolResult> ActivateAsync(string windowId, CancellationToken ct, string? applicationName = null)
@@ -312,9 +358,49 @@ public sealed class WindowsDesktopTools : IToolExecutor
                             throw new InvalidOperationException("Another window covers the control. Bring the target forward and inspect again.");
                         RequireTargetForeground(windowId, hwnd);
                         cancellationToken.ThrowIfCancellationRequested();
+                        NotifyActionVisual(new("click", (int)point.X, (int)point.Y, element.Current.Name));
+                        if (element.TryGetCurrentPattern(InvokePattern.Pattern, out var invokePattern) && invokePattern is InvokePattern invoke)
+                        {
+                            invoke.Invoke();
+                            performed = true;
+                            break;
+                        }
+                        if (element.TryGetCurrentPattern(TogglePattern.Pattern, out var togglePattern) && togglePattern is TogglePattern toggle)
+                        {
+                            var before = toggle.Current.ToggleState;
+                            toggle.Toggle();
+                            performed = true;
+                            Thread.Sleep(80);
+                            var verified = toggle.Current.ToggleState != before;
+                            return new(verified, verified ? "The control was toggled through Windows accessibility and its new state was verified." : "The toggle action was sent, but its new state could not be verified. Inspect before continuing.", new
+                            {
+                                performed = true,
+                                targetVerified = true,
+                                outcomeVerified = verified,
+                                physicalPointerMoved = false
+                            });
+                        }
+                        if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var selectionPattern) && selectionPattern is SelectionItemPattern selection)
+                        {
+                            selection.Select();
+                            performed = true;
+                            Thread.Sleep(80);
+                            var verified = selection.Current.IsSelected;
+                            return new(verified, verified ? "The item was selected through Windows accessibility and verified." : "The selection action was sent, but its state could not be verified. Inspect before continuing.", new
+                            {
+                                performed = true,
+                                targetVerified = true,
+                                outcomeVerified = verified,
+                                physicalPointerMoved = false
+                            });
+                        }
+                        NativeMethods.GetCursorPos(out var originalPointer);
                         NativeMethods.SetCursorPos((int)point.X, (int)point.Y);
                         NativeMethods.Send(NativeMethods.Mouse(0x2), NativeMethods.Mouse(0x4));
                         performed = true;
+                        Thread.Sleep(60);
+                        if (NativeMethods.GetCursorPos(out var afterClick) && Math.Abs(afterClick.X - point.X) < 3 && Math.Abs(afterClick.Y - point.Y) < 3)
+                            NativeMethods.SetCursorPos(originalPointer.X, originalPointer.Y);
                         break;
                     }
                 case "desktop_type":
@@ -444,4 +530,13 @@ public sealed class WindowsDesktopTools : IToolExecutor
     }
     private static string Text(JsonElement arguments, string name) => arguments.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text ? text : throw new ArgumentException($"Missing {name}.");
     private static string NormalizeLines(string value) => value.Replace("\r\n", "\n").Replace('\r', '\n');
+    private void NotifyActionVisual(DesktopActionVisual visual)
+    {
+        foreach (Action<DesktopActionVisual> observer in ActionVisual?.GetInvocationList() ?? [])
+            try
+            {
+                observer(visual);
+            }
+            catch { /* A visual observer cannot affect or authorize desktop input. */ }
+    }
 }

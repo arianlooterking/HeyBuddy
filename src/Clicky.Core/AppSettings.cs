@@ -37,6 +37,9 @@ public sealed class AppSettings
     {
         get; set;
     }
+    public bool VoiceScreenContext { get; set; } = true;
+    public bool ContextualScreenContext { get; set; } = true;
+    public bool VisualGuidance { get; set; } = true;
     public string CaptureMode { get; set; } = "window";
     public string SelectedMonitor { get; set; } = "";
     public int VisionMaxEdge { get; set; } = 768;

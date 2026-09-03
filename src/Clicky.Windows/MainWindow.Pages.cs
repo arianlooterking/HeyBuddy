@@ -223,6 +223,10 @@ public partial class MainWindow
         var dictionary = Field("Personal dictionary — one original = replacement per line", string.Join("\n", app.Settings.Dictionary.Select(p => p.Key + " = " + p.Value)), true);
         Note("Screen and companion", true);
         var capture = Choice("Share", ["window", "monitor", "region"], app.Settings.CaptureMode);
+        var voiceScreenContext = Check("See the focused app when I use Talk", app.Settings.VoiceScreenContext);
+        var contextualScreenContext = Check("See the focused app when a typed question refers to the screen", app.Settings.ContextualScreenContext);
+        var visualGuidance = Check("Show pointers, highlights, and click-detected walkthrough steps", app.Settings.VisualGuidance);
+        Note("A screen image is captured only for that request and is not saved. Guidance can point and teach, but it never clicks. Requested computer actions use a separate verified action path.");
         var visionSize = Field("Screen/image quality: longest edge in pixels (384–1536)", app.Settings.VisionMaxEdge.ToString());
         Note("768 pixels keeps local screen analysis faster. Use a small selected region for fine text, or increase quality for detail. Drawings keep their original screen coordinates.");
         var monitors = app.Capture.GetMonitors();
@@ -331,6 +335,9 @@ public partial class MainWindow
             app.Settings.Dictionary = parsedDictionary;
             app.Settings.CaptureMode = capture.SelectedItem?.ToString() ?? "window";
             app.Settings.SelectedMonitor = monitor.SelectedItem?.ToString() ?? "";
+            app.Settings.VoiceScreenContext = voiceScreenContext.IsChecked == true;
+            app.Settings.ContextualScreenContext = contextualScreenContext.IsChecked == true;
+            app.Settings.VisualGuidance = visualGuidance.IsChecked == true;
             app.Settings.CompanionEnabled = showCompanion.IsChecked == true;
             app.Settings.ReducedMotion = reduced.IsChecked == true;
             app.Settings.VisionMaxEdge = parsedVisionSize;
