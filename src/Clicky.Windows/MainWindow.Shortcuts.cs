@@ -69,7 +69,7 @@ public partial class MainWindow
 /// <summary>Records through focused WPF input only. It never sends keys or installs a hook.</summary>
 internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
 {
-    internal const string Instructions = "Click to record, or focus this field and press Enter. Press one key by itself, or hold Ctrl, Alt, Shift or Win with another key, then release. Escape cancels and Tab moves to the next control; either can still be used with a modifier. Save settings to apply.";
+    internal const string Instructions = "Click a field, press one button or a combination, then release. Left and right Shift, Ctrl, and Alt work alone. Escape cancels; Tab moves focus. Save settings to apply.";
     private readonly Func<bool> begin;
     private readonly Action end;
     private readonly Action<string> report;
@@ -77,6 +77,8 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
     private readonly DispatcherTimer releaseTimer = new() { Interval = TimeSpan.FromMilliseconds(60) };
     private string previous = "";
     private string? captured;
+    private Key? modifierCandidate;
+    private bool multipleKeysSeen;
     private bool waitingForRelease;
     private DateTime deadline;
     internal bool IsRecording
@@ -107,11 +109,7 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
         PreviewKeyUp += (_, args) =>
         {
             var key = args.Key == Key.System ? args.SystemKey : args.Key;
-            if (!IsRecording)
-                return;
-            heldKeys.Remove(key);
-            CompleteAfterRelease(PhysicalModifiers(), IsPhysicalKeyDown);
-            args.Handled = true;
+            args.Handled = RecordKeyUp(key, PhysicalModifiers(), IsPhysicalKeyDown);
         };
         LostKeyboardFocus += (_, _) => CancelRecording();
         Unloaded += (_, _) => CancelRecording();
@@ -129,6 +127,8 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
             return;
         previous = Text;
         captured = null;
+        modifierCandidate = null;
+        multipleKeysSeen = false;
         heldKeys.Clear();
         waitingForRelease = false;
         IsRecording = true;
@@ -136,7 +136,7 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
         Text = "Press a shortcut…";
         SetResourceReference(BorderBrushProperty, "Accent");
         releaseTimer.Start();
-        report("Listening for a shortcut. Press one key or a key combination. Escape cancels. HeyBuddy shortcuts are paused until all keys are released.");
+        report("Listening for a shortcut. Press one button or a combination, then release. Escape cancels. HeyBuddy shortcuts are paused while recording.");
     }
 
     internal bool RecordKeyDown(Key key, ModifierKeys modifiers)
@@ -161,13 +161,29 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
         }
         if (IsModifier(key))
         {
-            Text = ModifierText(modifiers) + "…";
+            var rightAltSequence = key == Key.RightAlt && heldKeys.All(pressed => pressed is Key.LeftCtrl or Key.RightAlt) ||
+                key == Key.LeftCtrl && modifierCandidate == Key.RightAlt && heldKeys.All(pressed => pressed is Key.LeftCtrl or Key.RightAlt);
+            if (rightAltSequence)
+            {
+                modifierCandidate = Key.RightAlt;
+                multipleKeysSeen = false;
+            }
+            else if (!multipleKeysSeen && heldKeys.Count == 1)
+                modifierCandidate = key;
+            else if (modifierCandidate != key)
+            {
+                modifierCandidate = null;
+                multipleKeysSeen = true;
+            }
+            Text = modifierCandidate == Key.RightAlt && !multipleKeysSeen ? "Right Alt…" : ModifierText(modifiers) + "…";
             return true;
         }
+        modifierCandidate = null;
+        multipleKeysSeen = true;
         if (!TryFormat(key, modifiers, out var binding))
         {
             Text = "Press one key or a key combination";
-            report("Choose a keyboard key. Ctrl, Alt, Shift and Win cannot be shortcuts by themselves; Escape and Tab alone keep their normal Settings behavior.");
+            report("Choose a keyboard key. Left/right Shift, Ctrl and Alt can be used alone. Escape and Tab alone keep their normal Settings behavior, and the Windows keys remain reserved.");
             return true;
         }
         try
@@ -183,6 +199,21 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
         captured = binding;
         Text = binding + " · release keys";
         waitingForRelease = true;
+        return true;
+    }
+
+    internal bool RecordKeyUp(Key key, ModifierKeys modifiers, Func<Key, bool> isKeyDown)
+    {
+        if (!IsRecording)
+            return false;
+        if (!waitingForRelease && !multipleKeysSeen && modifierCandidate == key && TryFormatStandaloneModifier(key, out var binding))
+        {
+            captured = binding;
+            Text = binding + " · release keys";
+            waitingForRelease = true;
+        }
+        heldKeys.Remove(key);
+        CompleteAfterRelease(modifiers, isKeyDown);
         return true;
     }
 
@@ -207,6 +238,8 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
         Text = captured ?? previous;
         IsRecording = false;
         waitingForRelease = false;
+        modifierCandidate = null;
+        multipleKeysSeen = false;
         heldKeys.Clear();
         releaseTimer.Stop();
         ClearValue(BorderBrushProperty);
@@ -233,6 +266,18 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
         return true;
     }
 
+    private static bool TryFormatStandaloneModifier(Key key, out string binding)
+    {
+        var formsKey = (FormsKeys)KeyInterop.VirtualKeyFromKey(key);
+        if (!ShortcutKeyPolicy.IsStandaloneModifier(formsKey))
+        {
+            binding = "";
+            return false;
+        }
+        binding = ShortcutKeyPolicy.FormatKey(formsKey);
+        return true;
+    }
+
     internal static void ValidateBinding(string binding)
     {
         var parts = binding.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
@@ -246,9 +291,16 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
                 "WIN" => ModifierKeys.Windows,
                 _ => throw new ArgumentException("Use Ctrl, Alt, Shift or Win plus a key for each shortcut.")
             };
-        if (parts.Length == 0 || !Enum.TryParse<FormsKeys>(parts[^1], true, out var formsKey) ||
-            !TryFormat(KeyInterop.KeyFromVirtualKey((int)formsKey), modifiers, out _))
-            throw new ArgumentException($"Invalid shortcut: {binding}. Choose one non-modifier key or a key combination, for example F8, Space, A or Ctrl+Alt+D.");
+        if (parts.Length == 0 || !ShortcutKeyPolicy.TryParseKey(parts[^1], out var formsKey))
+            throw new ArgumentException($"Invalid shortcut: {binding}. Choose one keyboard key or a key combination, for example Left Shift, F8, 1 or Ctrl+Alt+D.");
+        if (ShortcutKeyPolicy.IsStandaloneModifier(formsKey))
+        {
+            if (parts.Length != 1)
+                throw new ArgumentException($"Invalid shortcut: {binding}. A modifier can be used by itself, or with a non-modifier key such as Ctrl+Shift+D.");
+            return;
+        }
+        if (!TryFormat(KeyInterop.KeyFromVirtualKey((int)formsKey), modifiers, out _))
+            throw new ArgumentException($"Invalid shortcut: {binding}. Choose one keyboard key or a key combination, for example Left Shift, F8, 1 or Ctrl+Alt+D.");
         var reserved = (modifiers & ModifierKeys.Windows) != 0 && formsKey == FormsKeys.L ||
             modifiers == (ModifierKeys.Control | ModifierKeys.Alt) && formsKey == FormsKeys.Delete ||
             modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && formsKey == FormsKeys.Escape ||

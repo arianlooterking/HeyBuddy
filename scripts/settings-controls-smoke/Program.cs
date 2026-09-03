@@ -49,7 +49,9 @@ internal static class Program
                 ["Ctrl+Alt+Space", new Func<bool>(() => { starts++; return true; }), new Action(() => ends++), new Action<string>(messages.Add)], null)!;
             bool Listening() => (bool)RecorderType.GetProperty("IsRecording", PrivateInstance)!.GetValue(recorder)!;
             bool KeyDown(Key key, ModifierKeys modifiers) => (bool)Invoke(recorder, "RecordKeyDown", key, modifiers)!;
+            bool KeyUp(Key key, ModifierKeys modifiers, Func<Key, bool>? held = null) => (bool)Invoke(recorder, "RecordKeyUp", key, modifiers, held ?? (_ => false))!;
             void Release(ModifierKeys modifiers, Func<Key, bool>? held = null) => Invoke(recorder, "CompleteAfterRelease", modifiers, held ?? (_ => false));
+            static AppSettings IsolatedShortcut(string talk) => new() { TalkShortcut = talk, DictationShortcut = "F21", AgentShortcut = "F22", StopShortcut = "F23" };
 
             Verify("Shortcut controls are read-only and keyboard focusable", recorder.IsReadOnly && recorder.Focusable);
             KeyDown(Key.Enter, ModifierKeys.None);
@@ -70,17 +72,46 @@ internal static class Program
             }
             Verify("Recorded function binding is accepted by actual HotkeyManager", true);
 
+            foreach (var (key, modifier, expected) in new[]
+            {
+                (Key.LeftShift, ModifierKeys.Shift, "Left Shift"),
+                (Key.RightShift, ModifierKeys.Shift, "Right Shift"),
+                (Key.LeftCtrl, ModifierKeys.Control, "Left Ctrl"),
+                (Key.RightCtrl, ModifierKeys.Control, "Right Ctrl"),
+                (Key.LeftAlt, ModifierKeys.Alt, "Left Alt"),
+                (Key.RightAlt, ModifierKeys.Alt, "Right Alt")
+            })
+            {
+                Invoke(recorder, "BeginRecording");
+                KeyDown(key, modifier);
+                Verify($"{expected} remains a candidate until its physical release", Listening() && recorder.Text.EndsWith('…'));
+                KeyUp(key, ModifierKeys.None);
+                using var parsed = new HotkeyManager(IsolatedShortcut(recorder.Text));
+                Verify($"{expected} records and parses as its own button", recorder.Text == expected && !Listening());
+            }
             Invoke(recorder, "BeginRecording");
             KeyDown(Key.LeftCtrl, ModifierKeys.Control);
-            Release(ModifierKeys.None);
-            Verify("A modifier key alone remains unavailable", Listening() && recorder.Text.Contains("Ctrl+", StringComparison.Ordinal));
+            KeyDown(Key.RightAlt, ModifierKeys.Control | ModifierKeys.Alt);
+            Verify("AltGr is presented as the exact Right Alt button", recorder.Text == "Right Alt…");
+            KeyUp(Key.RightAlt, ModifierKeys.Control, key => key == Key.LeftCtrl);
+            Verify("Right Alt waits for AltGr's synthetic Control release", Listening());
+            KeyUp(Key.LeftCtrl, ModifierKeys.None);
+            using (var parsedAltGr = new HotkeyManager(IsolatedShortcut(recorder.Text)))
+            {
+            }
+            Verify("Right Alt records from the AltGr event sequence", recorder.Text == "Right Alt" && !Listening());
+            var modifierBinding = recorder.Text;
             var escapeHandled = KeyDown(Key.Escape, ModifierKeys.None);
-            Verify("Plain Escape cancels and preserves the previous binding", !Listening() && recorder.Text == "Ctrl+Alt+F8" && ends == 2);
+            Verify("Plain Escape outside recording is not intercepted", !escapeHandled && !Listening() && recorder.Text == modifierBinding);
+
+            Invoke(recorder, "BeginRecording");
+            escapeHandled = KeyDown(Key.Escape, ModifierKeys.None);
+            Verify("Plain Escape cancels and preserves the previous binding", !Listening() && recorder.Text == modifierBinding && starts == ends);
             Verify("Plain Escape is consumed instead of becoming a shortcut", escapeHandled);
 
             Invoke(recorder, "BeginRecording");
             var tabHandled = KeyDown(Key.Tab, ModifierKeys.None);
-            Verify("Plain Tab cancels, preserves the binding and remains available for focus navigation", !tabHandled && !Listening() && recorder.Text == "Ctrl+Alt+F8");
+            Verify("Plain Tab cancels, preserves the binding and remains available for focus navigation", !tabHandled && !Listening() && recorder.Text == modifierBinding);
 
             Invoke(recorder, "BeginRecording");
             KeyDown(Key.Escape, ModifierKeys.Control | ModifierKeys.Alt);
@@ -121,12 +152,56 @@ internal static class Program
                 using var parsed = new HotkeyManager(new AppSettings { TalkShortcut = recorder.Text });
                 Verify($"Bare {expected} records and parses", recorder.Text.Equals(expected, StringComparison.OrdinalIgnoreCase) && !Listening());
             }
-            Verify("Actual parser rejects generic and sided modifier keys used alone", new[] { "ShiftKey", "ControlKey", "Menu", "LShiftKey", "RShiftKey", "LControlKey", "RControlKey", "LMenu", "RMenu", "LWin", "RWin" }
+            Verify("Actual parser rejects generic modifiers and standalone Windows keys", new[] { "ShiftKey", "ControlKey", "Menu", "LWin", "RWin" }
                 .All(binding => Refuses(() => { using var parsed = new HotkeyManager(new AppSettings { TalkShortcut = binding }); })));
             Verify("Actual parser rejects mouse and synthetic pseudo-keys", new[] { "LButton", "RButton", "MButton", "XButton1", "XButton2", "ProcessKey", "Packet" }
                 .All(binding => Refuses(() => { using var parsed = new HotkeyManager(new AppSettings { TalkShortcut = binding }); })));
             Verify("Actual parser reserves plain Escape for recorder cancellation", Refuses(() => { using var parsed = new HotkeyManager(new AppSettings { TalkShortcut = "Escape" }); }));
             Verify("Actual parser reserves plain Tab for focus navigation", Refuses(() => { using var parsed = new HotkeyManager(new AppSettings { TalkShortcut = "Tab" }); }));
+            foreach (var (binding, exactKey, oppositeKey) in new[]
+            {
+                ("Left Shift", System.Windows.Forms.Keys.LShiftKey, System.Windows.Forms.Keys.RShiftKey),
+                ("Right Shift", System.Windows.Forms.Keys.RShiftKey, System.Windows.Forms.Keys.LShiftKey),
+                ("Left Ctrl", System.Windows.Forms.Keys.LControlKey, System.Windows.Forms.Keys.RControlKey),
+                ("Right Ctrl", System.Windows.Forms.Keys.RControlKey, System.Windows.Forms.Keys.LControlKey),
+                ("Left Alt", System.Windows.Forms.Keys.LMenu, System.Windows.Forms.Keys.RMenu),
+                ("Right Alt", System.Windows.Forms.Keys.RMenu, System.Windows.Forms.Keys.LMenu)
+            })
+            {
+                using var modifierManager = new HotkeyManager(IsolatedShortcut(binding));
+                var pressed = 0;
+                var released = 0;
+                modifierManager.ActionInvoked += (_, gesture) =>
+                {
+                    if (gesture == HotkeyGesture.Pressed)
+                        Interlocked.Increment(ref pressed);
+                    if (gesture == HotkeyGesture.Released)
+                        Interlocked.Increment(ref released);
+                };
+                var nativeMethods = typeof(MainWindow).Assembly.GetType("Clicky.Windows.Native.NativeMethods")!;
+                var hookDataType = nativeMethods.GetNestedType("KeyboardHookData", BindingFlags.NonPublic)!;
+                var hookData = Activator.CreateInstance(hookDataType)!;
+                var virtualKeyField = hookDataType.GetField("VkCode", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var hookDataPointer = Marshal.AllocHGlobal(Marshal.SizeOf(hookDataType));
+                try
+                {
+                    virtualKeyField.SetValue(hookData, (uint)oppositeKey);
+                    Marshal.StructureToPtr(hookData, hookDataPointer, false);
+                    Invoke(modifierManager, "OnKeyboard", 0, (nint)0x100, hookDataPointer);
+                    Invoke(modifierManager, "OnKeyboard", 0, (nint)0x101, hookDataPointer);
+                    Thread.Sleep(100);
+                    Verify($"{oppositeKey} does not trigger the {binding} preference", pressed == 0 && released == 0);
+
+                    virtualKeyField.SetValue(hookData, (uint)exactKey);
+                    Marshal.StructureToPtr(hookData, hookDataPointer, false);
+                    var downResult = (nint)Invoke(modifierManager, "OnKeyboard", 0, (nint)0x100, hookDataPointer)!;
+                    SpinWait.SpinUntil(() => Volatile.Read(ref pressed) == 1, TimeSpan.FromSeconds(1));
+                    var upResult = (nint)Invoke(modifierManager, "OnKeyboard", 0, (nint)0x101, hookDataPointer)!;
+                    SpinWait.SpinUntil(() => Volatile.Read(ref released) == 1, TimeSpan.FromSeconds(1));
+                    Verify($"{binding} is consumed and dispatches press and release", downResult == 1 && upResult == 1 && pressed == 1 && released == 1);
+                }
+                finally { Marshal.FreeHGlobal(hookDataPointer); }
+            }
             using (var bareKeyManager = new HotkeyManager(new AppSettings { TalkShortcut = "A" }))
             {
                 var invoked = 0;
@@ -200,6 +275,8 @@ internal static class Program
             Verify("Save detects duplicate bare-key bindings", Refuses(() => Invoke(window, "ValidateShortcutSettings", duplicateBare)));
             var reserved = new AppSettings { TalkShortcut = "Win+L" };
             Verify("Save rejects reserved Windows combinations", Refuses(() => Invoke(window, "ValidateShortcutSettings", reserved)));
+            var overlappingModifier = new AppSettings { TalkShortcut = "Left Ctrl", DictationShortcut = "Ctrl+D" };
+            Verify("Save rejects a standalone modifier that would also start another shortcut", Refuses(() => Invoke(window, "ValidateShortcutSettings", overlappingModifier)));
             Invoke(window, "ValidateShortcutSettings", services.Settings);
 
             var color = page.Children.OfType<WpfTextBox>().Single(control => AutomationProperties.GetName(control) == "Companion color");

@@ -1,6 +1,6 @@
 ; Build through scripts/release.ps1 after validation. Models, credentials, and user data are never packaged.
 #ifndef AppVersion
-  #define AppVersion "0.2.1"
+  #define AppVersion "0.2.2"
 #endif
 #ifndef AppSourceDir
   #define AppSourceDir "..\artifacts\release\HeyBuddy"

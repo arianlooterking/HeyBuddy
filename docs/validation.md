@@ -4,6 +4,12 @@ Date: September 3, 2026. Target: Windows 11 Pro build 28120, i7-12700K, approxim
 
 **This is a tested local build, not a completed full-parity release.** Account-dependent work is separate from the remaining local interactive acceptance checks below. Test fixtures are never presented as authenticated owner accounts.
 
+## 0.2.2 left/right modifier shortcut validation
+
+Version 0.2.2 makes Left Shift, Right Shift, Left Ctrl, Right Ctrl, Left Alt, and Right Alt distinct one-button choices for Talk, Dictate, Open agent composer, and Emergency stop. The recorder waits for the selected modifier to be released before saving it, so the same control still accepts combinations such as Ctrl+Shift+D. Right Alt also recognizes the AltGr event sequence used by many Turkish and European keyboard layouts.
+
+The isolated Settings fixture passes 82/82 checks. It records and parses all six sided modifiers, proves every left-side preference ignores its right-side counterpart and vice versa, checks press/release dispatch and global consumption, covers AltGr's synthetic Control release, and rejects a standalone modifier that would overlap another action's combination. It retains the earlier bare letter, digit, function, Space, Enter, navigation, punctuation, cancellation, duplicate, reserved-key, and repeat-state checks. The fixture does not send physical keyboard input or claim a live global standalone-modifier flow.
+
 ## 0.2.1 single-key shortcut validation
 
 Version 0.2.1 lets Talk, Dictate, Open agent composer, and Emergency stop each use a distinct single keyboard key or a key combination. The recorder and runtime parser now accept letters, digits, function keys, Space, Enter, navigation keys, and punctuation without requiring a modifier. Plain Escape remains the recorder's cancel action and plain Tab remains available for keyboard navigation; both can be combined with a modifier. Modifier-only keys, mouse/synthetic pseudo-keys, duplicates, and reserved Windows combinations are rejected.

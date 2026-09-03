@@ -22,9 +22,40 @@ internal static class ShortcutKeyPolicy
         return Enum.IsDefined(key) && virtualKey is > 0 and <= 254 && virtualKey is not (
             0x01 or 0x02 or 0x04 or 0x05 or 0x06 or // Mouse buttons.
             0x10 or 0x11 or 0x12 or 0x5b or 0x5c or // Generic modifiers and Windows keys.
-            0xa0 or 0xa1 or 0xa2 or 0xa3 or 0xa4 or 0xa5 or // Left/right modifier keys.
             0xe5 or 0xe7); // IME process and synthetic packet input.
     }
+
+    internal static bool IsStandaloneModifier(Forms.Keys key) => key is
+        Forms.Keys.LShiftKey or Forms.Keys.RShiftKey or
+        Forms.Keys.LControlKey or Forms.Keys.RControlKey or
+        Forms.Keys.LMenu or Forms.Keys.RMenu;
+
+    internal static bool TryParseKey(string value, out Forms.Keys key)
+    {
+        var normalized = value.Replace(" ", "", StringComparison.Ordinal).Replace("-", "", StringComparison.Ordinal).ToUpperInvariant();
+        key = normalized switch
+        {
+            "SHIFT" or "LEFTSHIFT" or "LSHIFTKEY" => Forms.Keys.LShiftKey,
+            "RIGHTSHIFT" or "RSHIFTKEY" => Forms.Keys.RShiftKey,
+            "CTRL" or "CONTROL" or "LEFTCTRL" or "LEFTCONTROL" or "LCONTROLKEY" => Forms.Keys.LControlKey,
+            "RIGHTCTRL" or "RIGHTCONTROL" or "RCONTROLKEY" => Forms.Keys.RControlKey,
+            "ALT" or "LEFTALT" or "LMENU" => Forms.Keys.LMenu,
+            "RIGHTALT" or "RMENU" => Forms.Keys.RMenu,
+            _ => 0
+        };
+        return key != 0 || Enum.TryParse(value, true, out key);
+    }
+
+    internal static string FormatKey(Forms.Keys key) => key switch
+    {
+        Forms.Keys.LShiftKey => "Left Shift",
+        Forms.Keys.RShiftKey => "Right Shift",
+        Forms.Keys.LControlKey => "Left Ctrl",
+        Forms.Keys.RControlKey => "Right Ctrl",
+        Forms.Keys.LMenu => "Left Alt",
+        Forms.Keys.RMenu => "Right Alt",
+        _ => key.ToString()
+    };
 
     internal static bool CanUseWithoutModifiers(Forms.Keys key) => key is not (Forms.Keys.Escape or Forms.Keys.Tab);
 }
@@ -50,6 +81,11 @@ public sealed class HotkeyManager : IDisposable
         shortcuts[ShortcutAction.EmergencyStop] = Shortcut.Parse(settings.StopShortcut);
         if (shortcuts.Values.Distinct().Count() != shortcuts.Count)
             throw new ArgumentException("Every global shortcut must be different.");
+        foreach (var first in shortcuts.Values)
+        {
+            if (shortcuts.Values.Any(other => !ReferenceEquals(first, other) && first.ConflictsWith(other)))
+                throw new ArgumentException("A standalone Shift, Ctrl, or Alt button cannot also be the modifier for another HeyBuddy shortcut. Choose a combination that uses a different modifier.");
+        }
         keyboardCallback = OnKeyboard;
         mouseCallback = OnMouse;
     }
@@ -144,9 +180,15 @@ public sealed class HotkeyManager : IDisposable
         internal static Shortcut Parse(string value)
         {
             var parts = value.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (parts.Length == 0 || !Enum.TryParse<Forms.Keys>(parts[^1], true, out var key) || !ShortcutKeyPolicy.IsBindable(key))
-                throw new ArgumentException($"Invalid shortcut: {value}. Choose one non-modifier key or a key combination, for example F8, Space, A or Ctrl+Alt+D.");
+            if (parts.Length == 0 || !ShortcutKeyPolicy.TryParseKey(parts[^1], out var key) || !ShortcutKeyPolicy.IsBindable(key))
+                throw new ArgumentException($"Invalid shortcut: {value}. Choose one keyboard key or a key combination, for example Left Shift, F8, 1 or Ctrl+Alt+D.");
             var modifiers = parts[..^1];
+            if (ShortcutKeyPolicy.IsStandaloneModifier(key))
+            {
+                if (modifiers.Length != 0)
+                    throw new ArgumentException($"Invalid shortcut: {value}. A modifier can be used by itself, or with a non-modifier key such as Ctrl+Shift+D.");
+                return new((uint)key, false, false, false, false);
+            }
             if (modifiers.Any(p => !new[] { "Ctrl", "Control", "Alt", "Shift", "Win" }.Contains(p, StringComparer.OrdinalIgnoreCase)))
                 throw new ArgumentException($"Unknown shortcut modifier in {value}.");
             if (modifiers.Length == 0 && !ShortcutKeyPolicy.CanUseWithoutModifiers(key))
@@ -154,7 +196,38 @@ public sealed class HotkeyManager : IDisposable
             bool Has(string modifier) => modifiers.Contains(modifier, StringComparer.OrdinalIgnoreCase);
             return new((uint)key, Has("Ctrl") || Has("Control"), Has("Alt"), Has("Shift"), Has("Win"));
         }
-        internal bool Matches(uint key) => key == Key && Down(0x11) == Control && Down(0x12) == Alt && Down(0x10) == Shift && (Down(0x5b) || Down(0x5c)) == Win;
+        internal bool Matches(uint key)
+        {
+            if (key != Key)
+                return false;
+            var trigger = (Forms.Keys)Key;
+            var standalone = ShortcutKeyPolicy.IsStandaloneModifier(trigger);
+            // AltGr is reported by Windows as Right Alt with a synthetic Control state on many layouts.
+            // Treat that state as part of the exact Right Alt button instead of requiring users to disable AltGr.
+            var ignoreControl = standalone && trigger is Forms.Keys.LControlKey or Forms.Keys.RControlKey or Forms.Keys.RMenu;
+            var ignoreAlt = standalone && trigger is Forms.Keys.LMenu or Forms.Keys.RMenu;
+            var ignoreShift = standalone && trigger is Forms.Keys.LShiftKey or Forms.Keys.RShiftKey;
+            return (ignoreControl || Down(0x11) == Control) &&
+                (ignoreAlt || Down(0x12) == Alt) &&
+                (ignoreShift || Down(0x10) == Shift) &&
+                (Down(0x5b) || Down(0x5c)) == Win;
+        }
+
+        internal bool ConflictsWith(Shortcut other)
+        {
+            var trigger = (Forms.Keys)Key;
+            if (!ShortcutKeyPolicy.IsStandaloneModifier(trigger) || ShortcutKeyPolicy.IsStandaloneModifier((Forms.Keys)other.Key))
+                return false;
+            return trigger switch
+            {
+                Forms.Keys.LShiftKey or Forms.Keys.RShiftKey => other.Shift,
+                Forms.Keys.LControlKey or Forms.Keys.RControlKey => other.Control,
+                Forms.Keys.LMenu => other.Alt,
+                Forms.Keys.RMenu => other.Alt || other.Control,
+                _ => false
+            };
+        }
+
         private static bool Down(int key) => (NativeMethods.GetAsyncKeyState(key) & 0x8000) != 0;
     }
 }

@@ -253,7 +253,7 @@ public partial class MainWindow
             companionScale.Unloaded += (_, _) => companion.ScaleChanged -= RefreshCompanionScale;
         }
         Note("Keyboard shortcuts", true);
-        Note(ShortcutRecorder.Instructions + " Each action needs a different shortcut. A single key works everywhere while HeyBuddy is running, so choosing a letter, number, Space, or navigation key will make HeyBuddy capture that key instead of typing it in other applications. Some combinations are reserved by Windows or another application.");
+        Note(ShortcutRecorder.Instructions + " Each action needs a different shortcut. A one-button shortcut replaces that button's normal use while HeyBuddy runs. A standalone modifier cannot also be used in another HeyBuddy combination. Windows keys and system-reserved combinations remain unavailable.");
         var talk = ShortcutField("Talk", app.Settings.TalkShortcut);
         var dictate = ShortcutField("Dictate", app.Settings.DictationShortcut);
         var agent = ShortcutField("Open agent composer", app.Settings.AgentShortcut);
