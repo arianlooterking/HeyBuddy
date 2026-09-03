@@ -1,0 +1,132 @@
+{
+  "product": "HeyBuddy",
+  "version": "0.2.0",
+  "recordedAt": "2026-09-03",
+  "releaseStatus": "Installed local release; full parity and broader interactive acceptance remain incomplete",
+  "build": {
+    "configuration": "Release",
+    "errors": 0,
+    "warnings": 0
+  },
+  "automatedTests": {
+    "failed": 0,
+    "core": {
+      "passed": 161,
+      "total": 161
+    },
+    "runtime": {
+      "passed": 51,
+      "total": 51
+    },
+    "connectors": {
+      "passed": 12,
+      "total": 12
+    },
+    "conversationRouting": {
+      "passed": 41,
+      "total": 41
+    },
+    "shortcutAndColor": {
+      "passed": 39,
+      "total": 39
+    }
+  },
+  "boundedFixtures": {
+    "nativeSpeechAndInput": {
+      "passed": 19,
+      "total": 19,
+      "humanMicrophoneUsed": false
+    },
+    "nativeRenderAndImagePreparation": {
+      "passed": 8,
+      "total": 8
+    },
+    "connectorUi": {
+      "passed": 10,
+      "total": 10,
+      "authenticatedAccountUsed": false
+    },
+    "installedAppCatalog": {
+      "passed": 18,
+      "total": 18,
+      "applicationsLaunched": false
+    },
+    "hostedWindowIdentity": {
+      "defaultRunPassed": 8,
+      "defaultRunSkipped": 1,
+      "calculatorRunPassed": 26,
+      "calculatorRunSkipped": 0,
+      "inputSentByHarness": false
+    },
+    "mainWindowRendering": {
+      "passed": 17,
+      "total": 17,
+      "liveWorkflow": false
+    }
+  },
+  "installation": {
+    "success": true,
+    "fileVersion": "0.2.0.0",
+    "selfContained": true,
+    "codeSigned": false,
+    "payloadFilesValidated": 537,
+    "installedPayloadFilesVerified": 537,
+    "retainedUserFilesVerified": true,
+    "retainedUserFileMismatches": 0,
+    "modelDownloadsIncluded": false,
+    "outerPackageChecksums": "Supplied beside the installer and portable ZIP in the GitHub Release SHA256SUMS.txt asset"
+  },
+  "installedChecks": {
+    "uiVersionVisible": "0.2.0",
+    "localModelReachedReady": true,
+    "calculatorActivation": {
+      "passed": true,
+      "verifiedActions": 1
+    },
+    "telegramActivation": {
+      "passed": true,
+      "verifiedActions": 1,
+      "privateContentRead": false
+    },
+    "notepadTyping": {
+      "passed": true,
+      "mode": "Auto",
+      "target": "heybuddy-typing-check.txt - Notepad",
+      "marker": "[HEYBUDDY-LIVE-VERIFY-20260903]",
+      "approvalPreview": {
+        "shown": true,
+        "tool": "desktop_type",
+        "exactTargetShown": true,
+        "exactMarkerShown": true
+      },
+      "firstAttempt": {
+        "success": false,
+        "failedClosed": true,
+        "reason": "The selected control did not expose verifiable editable text"
+      },
+      "recovery": "Refreshed the desktop snapshot and retried once within the configured bound",
+      "finalResult": {
+        "success": true,
+        "performed": true,
+        "targetVerified": true,
+        "outcomeVerified": true,
+        "foregroundChanged": false
+      },
+      "totalActions": 5,
+      "independentVisualReread": {
+        "completed": false,
+        "reason": "Stopped when user input was detected",
+        "claimedAsEvidence": false
+      }
+    }
+  },
+  "limitations": [
+    "Human microphone and hands-free acoustic acceptance remain pending",
+    "No authenticated personal connector account or paid cloud call was verified",
+    "No native Office application interaction was verified",
+    "Global hold and double-tap shortcut behavior still needs live validation",
+    "Mixed-DPI interaction and the broader cross-application matrix remain incomplete",
+    "Persian recognition has meaningful word errors",
+    "This record does not establish full Clicky parity or production readiness in every application"
+  ]
+}

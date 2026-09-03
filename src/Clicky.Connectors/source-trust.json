@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "reviewedAt": "2026-09-03",
+  "policy": "Only exact reviewed tool names on the matching official HTTPS authority and route may be classified ReadOnly. Provider annotations never grant trust. All unknown tools are Sensitive. This manifest records implementation provenance, not account-verification evidence.",
+  "sdk": {
+    "package": "ModelContextProtocol.Core",
+    "version": "2.2.0",
+    "source": "https://github.com/modelcontextprotocol/csharp-sdk/tree/v2.2.0",
+    "license": "Apache-2.0",
+    "packagePage": "https://www.nuget.org/packages/ModelContextProtocol.Core/2.2.0"
+  },
+  "providers": [
+    { "id": "google", "documentation": "https://developers.google.com/identity/protocols/oauth2/native-app", "authorizationOrigin": "https://accounts.google.com", "tokenOrigin": "https://oauth2.googleapis.com", "registration": "owner-provided Desktop OAuth client" },
+    { "id": "spotify", "documentation": "https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow", "endpoint": "https://api.spotify.com/v1/", "authorizationOrigin": "https://accounts.spotify.com", "registration": "owner-provided app" },
+    { "id": "notion", "documentation": "https://developers.notion.com/guides/mcp/get-started-with-mcp", "endpoint": "https://mcp.notion.com/mcp" },
+    { "id": "linear", "documentation": "https://linear.app/docs/mcp", "endpoint": "https://mcp.linear.app/mcp" },
+    { "id": "slack", "documentation": "https://docs.slack.dev/ai/slack-mcp-server", "endpoint": "https://mcp.slack.com/mcp", "registration": "requires own approved Slack app; no dynamic registration" },
+    { "id": "airtable", "documentation": "https://github.com/Airtable/airtable-mcp-cli", "endpoint": "https://mcp.airtable.com/mcp" },
+    { "id": "github", "documentation": "https://github.com/github/github-mcp-server", "endpoint": "https://api.githubcopilot.com/mcp/" },
+    { "id": "supabase", "documentation": "https://supabase.com/docs/guides/ai-tools/mcp", "endpoint": "https://mcp.supabase.com/mcp?read_only=true" },
+    { "id": "vercel", "documentation": "https://vercel.com/docs/ai-tooling/vercel-mcp", "endpoint": "https://mcp.vercel.com", "registration": "provider reviewed clients only; access not presumed" },
+    { "id": "polymarket", "documentation": "https://docs.polymarket.com/market-data/overview", "endpoint": "https://gamma-api.polymarket.com/", "mode": "public read only" },
+    { "id": "maps", "documentation": "https://operations.osmfoundation.org/policies/nominatim/", "endpoint": "https://nominatim.openstreetmap.org/search", "mode": "public read only, max one request per second" },
+    { "id": "web", "documentation": "https://www.mediawiki.org/wiki/API:Search", "endpoint": "https://en.wikipedia.org/w/api.php", "mode": "public read only" }
+  ],
+  "accountVerification": "No real account credentials were used during implementation. Consult per-connection test status for current evidence."
+}

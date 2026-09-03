@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+    <ApplicationManifest>../../src/Clicky.Windows/app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+    <Using Include="System.IO" />
+    <Compile Include="../../src/Clicky.Core/Contracts.cs" Link="Contracts.cs" />
+    <Compile Include="../../src/Clicky.Windows/Native/NativeMethods.cs" Link="NativeMethods.cs" />
+    <Compile Include="../../src/Clicky.Windows/Native/WindowsDesktopTools.cs" Link="WindowsDesktopTools.cs" />
+    <Compile Include="../../src/Clicky.Windows/Native/DesktopAppCatalog.cs" Link="DesktopAppCatalog.cs" />
+    <Compile Include="../../src/Clicky.Windows/Native/DesktopAppLauncher.cs" Link="DesktopAppLauncher.cs" />
+  </ItemGroup>
+</Project>

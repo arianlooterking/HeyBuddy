@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/HeyBuddy.ico</ApplicationIcon>
+    <AssemblyName>HeyBuddy</AssemblyName><Product>HeyBuddy</Product><Title>HeyBuddy</Title><Version>0.2.0</Version><RootNamespace>Clicky.Windows</RootNamespace>
+    <!-- WPF owns DPI configuration; WinForms is used only for tray/audio device helpers. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+  <ItemGroup><Using Remove="System.Drawing" /><Using Remove="System.Windows.Forms" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Clicky.Core/Clicky.Core.csproj" />
+    <ProjectReference Include="../Clicky.Runtime/Clicky.Runtime.csproj" />
+    <ProjectReference Include="../Clicky.Connectors/Clicky.Connectors.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.3.0" />
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+  </ItemGroup>
+</Project>

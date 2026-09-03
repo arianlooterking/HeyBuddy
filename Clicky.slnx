@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Clicky.Connectors/Clicky.Connectors.csproj" />
+    <Project Path="src/Clicky.Core/Clicky.Core.csproj" />
+    <Project Path="src/Clicky.Runtime/Clicky.Runtime.csproj" />
+    <Project Path="src/Clicky.Windows/Clicky.Windows.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Clicky.Connectors.Tests/Clicky.Connectors.Tests.csproj" />
+    <Project Path="tests/Clicky.Connectors.UiTests/Clicky.Connectors.UiTests.csproj" />
+    <Project Path="tests/Clicky.Core.Tests/Clicky.Core.Tests.csproj" />
+    <Project Path="tests/Clicky.Native.Tests/Clicky.Native.Tests.csproj" />
+    <Project Path="tests/Clicky.Runtime.Tests/Clicky.Runtime.Tests.csproj" />
+    <Project Path="tests/Clicky.Routing.UiTests/Clicky.Routing.UiTests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,35 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore
+        run: dotnet restore Clicky.slnx
+      - name: Build
+        run: dotnet build Clicky.slnx --configuration Release --no-restore --nologo
+      - name: Test
+        run: dotnet test Clicky.slnx --configuration Release --no-build --nologo
+      - name: Verify conversation routing
+        run: dotnet run --project tests/Clicky.Routing.UiTests --configuration Release --no-build -- artifacts/routing-ui
+      - name: Verify shortcut and color controls
+        run: dotnet run --project scripts/settings-controls-smoke --configuration Release -- artifacts/settings-controls
+      - name: Verify formatting
+        run: dotnet format Clicky.slnx --no-restore --verify-no-changes
