@@ -231,7 +231,7 @@ public partial class MainWindow
         var reduced = Check("Reduce motion", app.Settings.ReducedMotion);
         var color = CompanionColorField();
         var companionScale = Field("Companion size (0.5–2.0)", app.Settings.CompanionScale.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        Note("0.5 is half-size. Cursor size updates and saves immediately; reply text stays readable.");
+        Note("0.5 is half-size. Companion size updates and saves immediately; reply text stays readable. While listening, the arrow becomes a small voice meter that responds to the microphone.");
         companionScale.TextChanged += (_, _) =>
         {
             if (!double.TryParse(companionScale.Text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var scale) || !double.IsFinite(scale) || scale is < .5 or > 2 || scale == app.Settings.CompanionScale)
@@ -254,10 +254,10 @@ public partial class MainWindow
         }
         Note("Keyboard shortcuts", true);
         Note(ShortcutRecorder.Instructions + " Each action needs a different shortcut. A one-button shortcut replaces that button's normal use while HeyBuddy runs. A standalone modifier cannot also be used in another HeyBuddy combination. Windows keys and system-reserved combinations remain unavailable.");
-        var talk = ShortcutField("Talk", app.Settings.TalkShortcut);
-        var dictate = ShortcutField("Dictate", app.Settings.DictationShortcut);
-        var agent = ShortcutField("Open agent composer", app.Settings.AgentShortcut);
-        var stop = ShortcutField("Emergency stop", app.Settings.StopShortcut);
+        var talk = ShortcutField("Talk", app.Settings.TalkShortcut, settings => settings.TalkShortcut, (settings, value) => settings.TalkShortcut = value);
+        var dictate = ShortcutField("Dictate", app.Settings.DictationShortcut, settings => settings.DictationShortcut, (settings, value) => settings.DictationShortcut = value);
+        var agent = ShortcutField("Open agent composer", app.Settings.AgentShortcut, settings => settings.AgentShortcut, (settings, value) => settings.AgentShortcut = value);
+        var stop = ShortcutField("Emergency stop", app.Settings.StopShortcut, settings => settings.StopShortcut, (settings, value) => settings.StopShortcut = value);
         Note("Storage and resources", true);
         var directory = Field("Model folder", app.Settings.ModelDirectory);
         var workspace = Field("Agent workspace", app.Settings.WorkDirectory);

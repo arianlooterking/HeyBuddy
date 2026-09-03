@@ -1,8 +1,16 @@
 # HeyBuddy validation record
 
-Date: September 3, 2026. Target: Windows 11 Pro build 28120, i7-12700K, approximately 32 GB RAM, RTX 3070 Ti 8 GB. Two monitors were detected: 3840×2160 primary and 1920×1080 secondary with a negative vertical origin.
+Updated: September 4, 2026. Target: Windows 11 Pro build 28120, i7-12700K, approximately 32 GB RAM, RTX 3070 Ti 8 GB. Two monitors were detected: 3840×2160 primary and 1920×1080 secondary with a negative vertical origin.
 
 **This is a tested local build, not a completed full-parity release.** Account-dependent work is separate from the remaining local interactive acceptance checks below. Test fixtures are never presented as authenticated owner accounts.
+
+## 0.2.3 voice shortcut and companion repair
+
+Version 0.2.3 changes Talk and Dictate so a quick tap starts a latched recording and the next tap finishes it. Holding the shortcut for at least 500 ms keeps push-to-talk behavior and finishes on release. This removes the previous quick-tap path that stopped the microphone before the user could speak. The Agent shortcut now restores the main window, selects Agent mode, focuses the composer, and shows a clear ready message. A valid shortcut capture persists immediately instead of depending on the separate page-level Save button.
+
+The isolated Settings fixture passes 94/94 checks, including the new tap/hold state transitions, immediate shortcut persistence, prepared Agent composer state, input-reactive companion state, and all prior sided-modifier coverage. The separate companion fixture passes 16/16 checks across 96, 144, and 192 DPI. While voice input is active, the half-size arrow is replaced by an 18-DIP three-bar indicator; its bars and ring respond to the microphone's dynamic signal and the reply bubble stays hidden.
+
+An eight-second live probe used the saved `Microphone (USB Audio Device)` selection. It received 99 frames, measured a maximum dynamic level of 0.00806 (approximately −42 dB), and returned a local English transcript with `SpeechCaptureOutcome.Recognized`. This proves the selected device and local recognition path received a real signal in that run. The signal was quiet and the wording was inaccurate, so broad human intelligibility and multilingual microphone acceptance remain open. No raw PCM was saved.
 
 ## 0.2.2 left/right modifier shortcut validation
 
@@ -64,7 +72,7 @@ Installed **Auto** requests for exact **Open Calculator** and **Open Telegram** 
 
 The mode routing and Apps & actions picker have bounded fixture evidence. The installed UI adds direct evidence for the preload status reaching Ready and for exact-name window activation. The final installed Auto typing task showed a `desktop_type` approval preview for the exact target `heybuddy-typing-check.txt - Notepad` and marker `[HEYBUDDY-LIVE-VERIFY-20260903]`. Its first attempt failed closed on unverifiable editable text; after a fresh snapshot, one bounded retry succeeded. The five-action run ended with `performed=true`, `targetVerified=true`, `outcomeVerified=true`, and `foregroundChanged=false`. An independent visual reread was stopped when user input was detected and is not claimed as separate evidence.
 
-A human microphone sample remains pending. No genuine Word/Excel/PowerPoint registrations were available, so there is no Office interaction claim. Authenticated connector accounts, global hold/double-tap shortcuts, mixed-DPI interaction, and the other limits below remain unchanged. Follow the separate [refinement record](refinement-2026-09-03.md) for the detailed sequence. This remains a partial local validation, not full parity or production-readiness certification.
+Broad human microphone acceptance remains pending. No genuine Word/Excel/PowerPoint registrations were available, so there is no Office interaction claim. Authenticated connector accounts, physical global shortcut gestures, mixed-DPI interaction, and the other limits below remain unchanged. Follow the separate [refinement record](refinement-2026-09-03.md) for the detailed sequence. This remains a partial local validation, not full parity or production-readiness certification.
 
 ## Automated and real local checks
 
@@ -125,7 +133,7 @@ An initial controlled native fixture run passed 13 checks, including actual clic
 
 At 10:14:52 UTC, a read-only recheck found **LockApp** owning the foreground in the user's session. No unlock attempt or protected-service change was made. That observation is historical: after the 0.1.1 upgrade, the normal app was brought forward and its Settings navigation and scrolling worked through Computer Use. The extended cross-application acceptance suite remains incomplete. Earlier evidence: `artifacts/native/foreground-status.json`.
 
-Remaining local checks: actual dictation and walkthroughs in Notepad, Chromium and VS Code; Office interaction if genuine Office applications become available; global hold/double-tap keyboard gestures; human EN/FA/TR microphone samples; hands-free echo/interruption behavior; microphone unplug/switch during recording; mixed-DPI interaction; controlled elevated-window fixture; network-disabled desktop operation; deliberate GPU-memory exhaustion; and upgrade/restart recovery with pending tasks. The installed Auto Notepad typing result is executor-verified; only its independent visual reread was stopped by user input. The 0.1.1-to-0.2.0 package upgrade and preservation check passed. Core/protocol simulations cover several related failure paths, but do not replace the remaining checks.
+Remaining local checks: actual dictation and walkthroughs in Notepad, Chromium and VS Code; Office interaction if genuine Office applications become available; physical global shortcut gestures; deliberate EN/FA/TR human microphone accuracy samples; hands-free echo/interruption behavior; microphone unplug/switch during recording; mixed-DPI interaction; controlled elevated-window fixture; network-disabled desktop operation; deliberate GPU-memory exhaustion; and upgrade/restart recovery with pending tasks. The installed Auto Notepad typing result is executor-verified; only its independent visual reread was stopped by user input. The 0.1.1-to-0.2.0 package upgrade and preservation check passed. Core/protocol simulations cover several related failure paths, but do not replace the remaining checks.
 
 Persian small-model recognition has meaningful word/boundary errors. A medium model comparison was slower and did not materially improve the tested phrase. This remains a quality limitation. OpenAI Realtime currently uses local transcription followed by a request-scoped cloud audio response; it is not an always-connected cloud microphone session. Arbitrary compatible model capabilities are not automatically proven by a model ID.
 

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using Clicky.Windows.Native;
 using Clicky.Core;
 using Clicky.Windows.Views;
 
@@ -93,7 +94,7 @@ public partial class MainWindow
             var manualPreserved = true;
             foreach (var dictation in new[] { false, true })
             {
-                BeginRecording(dictation);
+                BeginRecording(dictation ? ShortcutAction.Dictation : ShortcutAction.Talk);
                 manualPreserved &= Preserved();
             }
             Verify("Pending transcription refuses manual recording without starting capture or cancelling its operation", manualPreserved);

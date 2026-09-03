@@ -4,7 +4,7 @@
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/HeyBuddy.ico</ApplicationIcon>
-    <AssemblyName>HeyBuddy</AssemblyName><Product>HeyBuddy</Product><Title>HeyBuddy</Title><Version>0.2.2</Version><RootNamespace>Clicky.Windows</RootNamespace>
+    <AssemblyName>HeyBuddy</AssemblyName><Product>HeyBuddy</Product><Title>HeyBuddy</Title><Version>0.2.3</Version><RootNamespace>Clicky.Windows</RootNamespace>
     <!-- WPF owns DPI configuration; WinForms is used only for tray/audio device helpers. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
   </PropertyGroup>

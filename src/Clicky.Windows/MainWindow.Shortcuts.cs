@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
+using System.Text.Json;
 using Clicky.Core;
 using Clicky.Windows.Native;
 using FormsKeys = System.Windows.Forms.Keys;
@@ -13,11 +14,12 @@ public partial class MainWindow
     private readonly HashSet<ShortcutRecorder> shortcutRecordersInProgress = [];
     private bool restoreShortcutHooks;
 
-    private ShortcutRecorder ShortcutField(string label, string value)
+    private ShortcutRecorder ShortcutField(string label, string value, Func<AppSettings, string> read, Action<AppSettings, string> write)
     {
         PageContent.Children.Add(new TextBlock { Text = label, Style = (Style)FindResource("Label") });
         ShortcutRecorder? recorder = null;
-        recorder = new(value, () => BeginShortcutRecording(recorder!), () => EndShortcutRecording(recorder!), SetStatus);
+        recorder = new(value, () => BeginShortcutRecording(recorder!), () => EndShortcutRecording(recorder!), SetStatus,
+            binding => CommitShortcut(label, binding, read, write));
         recorder.Style = (Style)FindResource(typeof(System.Windows.Controls.TextBox));
         System.Windows.Automation.AutomationProperties.SetName(recorder, label);
         System.Windows.Automation.AutomationProperties.SetHelpText(recorder, ShortcutRecorder.Instructions);
@@ -26,6 +28,27 @@ public partial class MainWindow
         recorder.Unloaded += (_, _) => Deactivated -= deactivate;
         PageContent.Children.Add(recorder);
         return recorder;
+    }
+
+    private void CommitShortcut(string label, string binding, Func<AppSettings, string> read, Action<AppSettings, string> write)
+    {
+        var candidate = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(app.Settings))!;
+        write(candidate, binding);
+        ValidateShortcutSettings(candidate);
+        var previous = read(app.Settings);
+        try
+        {
+            write(app.Settings, binding);
+            app.Settings.Save();
+            if (IsLoaded)
+                StartHotkeys();
+        }
+        catch
+        {
+            write(app.Settings, previous);
+            throw;
+        }
+        SetStatus($"{label} shortcut saved: {binding}.");
     }
 
     private bool BeginShortcutRecording(ShortcutRecorder recorder)
@@ -69,10 +92,11 @@ public partial class MainWindow
 /// <summary>Records through focused WPF input only. It never sends keys or installs a hook.</summary>
 internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
 {
-    internal const string Instructions = "Click a field, press one button or a combination, then release. Left and right Shift, Ctrl, and Alt work alone. Escape cancels; Tab moves focus. Save settings to apply.";
+    internal const string Instructions = "Click a field, press one button or a combination, then release. Left and right Shift, Ctrl, and Alt work alone. Escape cancels; Tab moves focus. A valid shortcut saves immediately.";
     private readonly Func<bool> begin;
     private readonly Action end;
     private readonly Action<string> report;
+    private readonly Action<string>? commit;
     private readonly HashSet<Key> heldKeys = [];
     private readonly DispatcherTimer releaseTimer = new() { Interval = TimeSpan.FromMilliseconds(60) };
     private string previous = "";
@@ -87,10 +111,16 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
     }
 
     internal ShortcutRecorder(string value, Func<bool> begin, Action end, Action<string> report)
+        : this(value, begin, end, report, null)
+    {
+    }
+
+    internal ShortcutRecorder(string value, Func<bool> begin, Action end, Action<string> report, Action<string>? commit)
     {
         this.begin = begin;
         this.end = end;
         this.report = report;
+        this.commit = commit;
         Text = value;
         IsReadOnly = true;
         IsUndoEnabled = false;
@@ -244,10 +274,23 @@ internal sealed class ShortcutRecorder : System.Windows.Controls.TextBox
         releaseTimer.Stop();
         ClearValue(BorderBrushProperty);
         end();
+        if (accepted && commit is not null)
+        {
+            try
+            {
+                commit(Text);
+            }
+            catch (Exception error)
+            {
+                Text = previous;
+                report(error.Message + " The previous shortcut is kept.");
+                return;
+            }
+        }
         report(accepted
             ? Text.Contains('+', StringComparison.Ordinal)
-                ? $"Recorded {Text}. Save settings to apply it."
-                : $"Recorded {Text} as a global single-key shortcut. While HeyBuddy runs, {Text} will trigger this action instead of typing normally. Save settings to apply it."
+                ? $"Saved {Text}."
+                : $"Saved {Text} as a global single-key shortcut. While HeyBuddy runs, {Text} triggers this action instead of typing normally."
             : "Shortcut recording cancelled. The previous shortcut is kept.");
     }
 

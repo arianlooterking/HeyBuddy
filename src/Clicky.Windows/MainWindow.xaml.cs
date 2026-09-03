@@ -14,6 +14,11 @@ using WpfTextBox = System.Windows.Controls.TextBox;
 
 namespace Clicky.Windows;
 
+internal enum VoiceShortcutTransition
+{
+    None, Start, KeepListening, Finish
+}
+
 public partial class MainWindow : Window
 {
     private readonly AppServices app;
@@ -81,9 +86,22 @@ public partial class MainWindow : Window
     {
         Show();
         WindowState = WindowState.Normal;
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle != 0)
+        {
+            ShowWindowAsync(handle, 9);
+            SetForegroundWindow(handle);
+        }
         Activate();
-        Composer.Focus();
+        Dispatcher.BeginInvoke(() =>
+        {
+            Activate();
+            Composer.Focus();
+            Keyboard.Focus(Composer);
+            Composer.CaretIndex = Composer.Text.Length;
+        }, DispatcherPriority.Input);
     }
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool ShowWindowAsync(nint hwnd, int command);
     private void RememberExternalWindow()
     {
         var handle = HotkeyManager.GetForegroundWindow();
@@ -117,46 +135,57 @@ public partial class MainWindow : Window
         }
         if (action == ShortcutAction.Agent && gesture != HotkeyGesture.Released)
         {
-            ShowAndActivate();
-            ShowPage("chat");
-            ModeSelector.SelectedIndex = 1;
+            OpenAgentComposer();
             return;
         }
         if (action is not (ShortcutAction.Talk or ShortcutAction.Dictation))
             return;
         try
         {
-            if (gesture == HotkeyGesture.DoubleTap)
+            var transition = ResolveVoiceShortcutGesture(gesture, recording, latching, DateTime.UtcNow - recordingStarted);
+            if (transition == VoiceShortcutTransition.Start)
+                BeginRecording(action);
+            else if (transition == VoiceShortcutTransition.Finish)
             {
-                latching = true;
-                if (!recording)
-                    BeginRecording(action == ShortcutAction.Dictation);
-            }
-            else if (gesture == HotkeyGesture.Pressed)
-            {
-                if (recording && latching)
-                {
-                    latching = false;
-                    await FinishRecording();
-                }
-                else if (!recording)
-                    BeginRecording(action == ShortcutAction.Dictation);
-            }
-            else if (gesture == HotkeyGesture.Released && recording && !latching)
-            {
-                if ((DateTime.UtcNow - recordingStarted).TotalMilliseconds < 220)
-                {
-                    await Task.Delay(430);
-                    if (latching || !recording)
-                        return;
-                }
+                latching = false;
                 await FinishRecording();
             }
+            else if (transition == VoiceShortcutTransition.KeepListening)
+            {
+                latching = true;
+                SetStatus(dictating
+                    ? "Listening for dictation. Press the shortcut again to finish and insert it."
+                    : "Listening. Press the shortcut again to finish and send.");
+            }
         }
-        catch (Exception error) { recording = false; TalkButton.Content = "Talk"; SetStatus(error.Message); }
+        catch (Exception error)
+        {
+            recording = false;
+            latching = false;
+            TalkButton.Content = "Talk";
+            SetMicrophoneActive(false);
+            SetStatus(error.Message);
+        }
     }
-    private void BeginRecording(bool forDictation)
+    internal static VoiceShortcutTransition ResolveVoiceShortcutGesture(HotkeyGesture gesture, bool isRecording, bool isLatched, TimeSpan elapsed)
     {
+        if (gesture is HotkeyGesture.Pressed or HotkeyGesture.DoubleTap)
+            return !isRecording ? VoiceShortcutTransition.Start : isLatched ? VoiceShortcutTransition.Finish : VoiceShortcutTransition.None;
+        if (gesture != HotkeyGesture.Released || !isRecording || isLatched)
+            return VoiceShortcutTransition.None;
+        return elapsed.TotalMilliseconds < 500 ? VoiceShortcutTransition.KeepListening : VoiceShortcutTransition.Finish;
+    }
+    private void OpenAgentComposer(bool activate = true)
+    {
+        ShowPage("chat");
+        ModeSelector.SelectedIndex = 1;
+        SetStatus("Agent composer ready. Type a task, then press Enter or choose Send.");
+        if (activate)
+            ShowAndActivate();
+    }
+    private void BeginRecording(ShortcutAction action)
+    {
+        var forDictation = action == ShortcutAction.Dictation;
         if (microphoneTest || finishingRecording)
         {
             SetStatus("Wait for the current microphone test or transcription to finish before recording again.");
@@ -183,8 +212,9 @@ public partial class MainWindow : Window
         recordingMode = ModeSelector.SelectedIndex == 2 ? 0 : ModeSelector.SelectedIndex;
         recordingStarted = DateTime.UtcNow;
         TalkButton.Content = "Finish";
-        SetStatus(forDictation ? "Listening for dictation… release the shortcut to insert." : "Listening… release the shortcut to send.");
-        companion?.SetState("Listening");
+        SetStatus(forDictation
+            ? "Listening for dictation… tap again to insert, or keep holding and release."
+            : "Listening… tap again to send, or keep holding and release.");
     }
     private async Task FinishRecording()
     {
@@ -221,11 +251,24 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException) { SetStatus("Stopped."); }
         catch (Exception error) { SetStatus(error.Message + " Your transcript is available in History if it was completed."); }
-        finally { finishingRecording = false; TalkButton.IsEnabled = true; SetMicrophoneActive(false); companion?.SetState(""); }
+        finally
+        {
+            finishingRecording = false;
+            latching = false;
+            TalkButton.IsEnabled = true;
+            SetMicrophoneActive(false);
+            companion?.SetState("");
+        }
     }
     private async void ToggleTalk(object sender, RoutedEventArgs e)
     {
-        await Guard(async () => { if (recording) await FinishRecording(); else BeginRecording(ModeSelector.SelectedIndex == 2); });
+        await Guard(async () =>
+        {
+            if (recording)
+                await FinishRecording();
+            else
+                BeginRecording(ModeSelector.SelectedIndex == 2 ? ShortcutAction.Dictation : ShortcutAction.Talk);
+        });
     }
     private async void SendMessage(object sender, RoutedEventArgs e) => await Guard(SendAsync);
     private async void ComposerKeyDown(object sender, System.Windows.Input.KeyEventArgs e)

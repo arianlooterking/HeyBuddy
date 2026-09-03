@@ -1,11 +1,11 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-Validates and installs the repository's HeyBuddy 0.2.2 release while preserving local user data.
+Validates and installs the repository's HeyBuddy 0.2.3 release while preserving local user data.
 
 .DESCRIPTION
 Run from a normal, unelevated PowerShell 7 session after scripts/release.ps1 has produced the
-0.2.2 artifacts. The installer is per-user. This helper never changes settings or credentials.
+0.2.3 artifacts. The installer is per-user. This helper never changes settings or credentials.
 
 .PARAMETER DryRun
 Validates release metadata, installer and payload hashes, inventories retained data, and reports
@@ -25,7 +25,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$expectedVersion = '0.2.2'
+$expectedVersion = '0.2.3'
 $workspaceRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $releaseRoot = [IO.Path]::GetFullPath((Join-Path $workspaceRoot 'artifacts\release'))
 $releaseManifest = [IO.Path]::GetFullPath((Join-Path $releaseRoot 'release.json'))

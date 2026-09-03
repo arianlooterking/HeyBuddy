@@ -17,12 +17,21 @@ public sealed class CompanionWindow : Window
     private readonly TextBlock status = new() { FontSize = 12, Foreground = Brushes.White, TextWrapping = TextWrapping.Wrap };
     private readonly Border bubble;
     private readonly Path pointer;
+    private readonly Ellipse eye1 = new() { Width = 4, Height = 6, Fill = Brushes.White };
+    private readonly Ellipse eye2 = new() { Width = 4, Height = 6, Fill = Brushes.White };
+    private readonly Canvas listeningIndicator = new() { Name = "ListeningIndicator", Width = 36, Height = 36, Visibility = Visibility.Collapsed };
+    private readonly Ellipse listeningRing = new() { Width = 34, Height = 34, StrokeThickness = 2, Opacity = .35 };
+    private readonly Ellipse listeningDisc = new() { Width = 30, Height = 30 };
+    private readonly List<Rectangle> listeningBars = [];
     private readonly Canvas mascot = new() { Width = 48, Height = 62, VerticalAlignment = VerticalAlignment.Top };
     private readonly List<(MenuItem Item, double Scale)> sizes = [];
     private double x, y;
     private bool docked;
     private string reply = "";
     private DateTime replyUntil;
+    private bool listening;
+    private double listeningLevel;
+    private double listeningTarget;
     public event Action<double>? ScaleChanged;
     public CompanionWindow(AppSettings settings, Action open)
     {
@@ -38,14 +47,29 @@ public sealed class CompanionWindow : Window
         var content = new StackPanel { Orientation = Orientation.Horizontal, Margin = new(2) };
         pointer = new Path { Data = Geometry.Parse("M 6,4 L 43,35 L 29,38 L 21,57 Z"), Fill = new SolidColorBrush(Color.FromRgb(56, 107, 255)), Stroke = Brushes.White, StrokeThickness = 2, StrokeLineJoin = PenLineJoin.Round };
         mascot.Children.Add(pointer);
-        var eye1 = new Ellipse { Width = 4, Height = 6, Fill = Brushes.White };
         Canvas.SetLeft(eye1, 16);
         Canvas.SetTop(eye1, 22);
         mascot.Children.Add(eye1);
-        var eye2 = new Ellipse { Width = 4, Height = 6, Fill = Brushes.White };
         Canvas.SetLeft(eye2, 25);
         Canvas.SetTop(eye2, 25);
         mascot.Children.Add(eye2);
+        Canvas.SetLeft(listeningRing, 1);
+        Canvas.SetTop(listeningRing, 1);
+        listeningRing.RenderTransformOrigin = new(.5, .5);
+        listeningRing.RenderTransform = new ScaleTransform(1, 1);
+        listeningIndicator.Children.Add(listeningRing);
+        Canvas.SetLeft(listeningDisc, 3);
+        Canvas.SetTop(listeningDisc, 3);
+        listeningIndicator.Children.Add(listeningDisc);
+        foreach (var left in new[] { 11d, 16.5, 22d })
+        {
+            var bar = new Rectangle { Width = 3.5, Height = 5, RadiusX = 1.75, RadiusY = 1.75, Fill = Brushes.White };
+            Canvas.SetLeft(bar, left);
+            Canvas.SetTop(bar, 15.5);
+            listeningBars.Add(bar);
+            listeningIndicator.Children.Add(bar);
+        }
+        mascot.Children.Add(listeningIndicator);
         bubble = new Border { Child = status, Background = new SolidColorBrush(Color.FromRgb(29, 37, 51)), Padding = new(10, 7, 10, 7), CornerRadius = new(9), MaxWidth = 145, VerticalAlignment = VerticalAlignment.Top, Margin = new(6, 7, 0, 0), Visibility = Visibility.Collapsed };
         content.Children.Add(mascot);
         content.Children.Add(bubble);
@@ -84,7 +108,10 @@ public sealed class CompanionWindow : Window
     {
         try
         {
-            pointer.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(settings.CompanionColor));
+            var color = (Color)ColorConverter.ConvertFromString(settings.CompanionColor);
+            pointer.Fill = new SolidColorBrush(color);
+            listeningDisc.Fill = new SolidColorBrush(color);
+            listeningRing.Stroke = new SolidColorBrush(color);
         }
         catch (FormatException) { }
         var scale = double.IsFinite(settings.CompanionScale) ? Math.Clamp(settings.CompanionScale, .5, 2) : .5;
@@ -100,14 +127,82 @@ public sealed class CompanionWindow : Window
     }
     public void SetState(string value)
     {
+        if (listening)
+        {
+            status.Text = "";
+            bubble.Visibility = Visibility.Collapsed;
+            return;
+        }
         if (string.IsNullOrEmpty(value) && DateTime.UtcNow < replyUntil)
             value = reply;
         status.Text = value;
         status.FlowDirection = MainWindow.DetectLanguage(value) == "fa" ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
         bubble.Visibility = string.IsNullOrEmpty(value) ? Visibility.Collapsed : Visibility.Visible;
     }
+    public void SetListening(bool active)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => SetListening(active));
+            return;
+        }
+        listening = active;
+        pointer.Visibility = active ? Visibility.Collapsed : Visibility.Visible;
+        eye1.Visibility = active ? Visibility.Collapsed : Visibility.Visible;
+        eye2.Visibility = active ? Visibility.Collapsed : Visibility.Visible;
+        listeningIndicator.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+        mascot.Width = active ? 36 : 48;
+        mascot.Height = active ? 36 : 62;
+        if (active)
+        {
+            status.Text = "";
+            bubble.Visibility = Visibility.Collapsed;
+            listeningLevel = 0;
+            listeningTarget = 0;
+            UpdateListeningVisual();
+        }
+        else
+        {
+            listeningLevel = 0;
+            listeningTarget = 0;
+            SetState("");
+        }
+    }
+    public void SetAudioLevel(float level)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => SetAudioLevel(level));
+            return;
+        }
+        if (!listening)
+            return;
+        var decibels = 20 * Math.Log10(Math.Max(level, .000001));
+        listeningTarget = Math.Clamp((decibels + 58) / 46, 0, 1);
+        listeningLevel = Math.Max(listeningLevel, listeningTarget);
+        UpdateListeningVisual();
+    }
+    private void UpdateListeningVisual()
+    {
+        var accents = new[] { .72, 1.0, .82 };
+        for (var index = 0; index < listeningBars.Count; index++)
+        {
+            var height = 4 + 17 * Math.Clamp(listeningLevel * accents[index], 0, 1);
+            listeningBars[index].Height = height;
+            Canvas.SetTop(listeningBars[index], 18 - height / 2);
+        }
+        listeningRing.Opacity = .3 + listeningLevel * .6;
+        var scale = 1 + listeningLevel * .12;
+        listeningRing.RenderTransform = new ScaleTransform(scale, scale);
+    }
     private void Follow()
     {
+        if (listening)
+        {
+            listeningLevel += (listeningTarget - listeningLevel) * .32;
+            listeningTarget *= .86;
+            UpdateListeningVisual();
+        }
         if (!IsVisible || IsMouseOver || ContextMenu?.IsOpen == true)
             return;
         if (status.Text == reply && DateTime.UtcNow >= replyUntil)

@@ -6,7 +6,7 @@ HeyBuddy is a local-first Windows desktop assistant for conversation, dictation,
 
 HeyClicky 1.0.48 is the feature reference. HeyBuddy is an independent Windows implementation based on observed behavior and the older [MIT-licensed Clicky repository](https://github.com/farzaa/clicky); it does not contain the Mac application or its private services.
 
-> **Current release: 0.2.2.** Each of the four global actions can use an individually chosen keyboard button or key combination. Left and right Shift, Ctrl, and Alt are distinct one-button choices. Local AI, speech, documents, history, and selected Windows actions work; installed and fixture evidence are labeled separately. Human microphone acceptance, authenticated account connectors, and the broader cross-application matrix remain open. See [what has actually been validated](docs/validation.md).
+> **Current release: 0.2.3.** Voice shortcuts now work as tap-to-start/tap-to-finish or hold-to-talk, the agent shortcut opens and focuses its composer, and valid shortcut changes save immediately. While recording, the half-size pointer becomes a compact microphone meter driven by the selected input. Local AI, speech, documents, history, and selected Windows actions work; installed and fixture evidence are labeled separately. Authenticated account connectors and the broader cross-application matrix remain open. See [what has actually been validated](docs/validation.md).
 
 ## Screenshot
 
@@ -18,8 +18,8 @@ This is a sanitized 0.2.0 diagnostic render of the real WPF interface. It is lay
 
 The release process creates two files under `artifacts/release/`:
 
-- `HeyBuddy-0.2.2-Setup-x64.exe` — per-user Windows installer.
-- `HeyBuddy-0.2.2-win-x64.zip` — portable, self-contained application.
+- `HeyBuddy-0.2.3-Setup-x64.exe` — per-user Windows installer.
+- `HeyBuddy-0.2.3-win-x64.zip` — portable, self-contained application.
 
 `artifacts/` is intentionally excluded from Git. Publish those two files with `SHA256SUMS.txt` on the matching GitHub Release rather than committing binaries. Exact outer-package hashes are kept in that release asset and are not duplicated inside packaged documentation, since changing a packaged document changes the package hashes.
 
@@ -51,7 +51,7 @@ Closing the main window leaves HeyBuddy in the tray. Choose **Quit** from the tr
 |---|---|---|
 | Conversation and history | **Working locally** | Streaming typed chat, selectable replies, SQLite history, cancellation, and English/Persian/Turkish text. Local model quality still depends on the selected model. |
 | Local AI and vision | **Working locally** | Pinned Qwen 3.5 4B, authenticated loopback llama.cpp worker, resource controls, model verification, crash recovery, and optional startup preload. Screen analysis is faster at reduced image size; small text may require a selected region. |
-| Local speech | **Working; human mic check pending** | Whisper transcription, Piper replies, device selection, previews, speed control, interruption, quiet-signal handling, and generated EN/FA/TR tests. Persian recognition has meaningful word errors. |
+| Local speech | **Working; one live device probe completed** | Whisper transcription, Piper replies, device selection, previews, speed control, interruption, quiet-signal handling, generated EN/FA/TR tests, and an eight-second capture through the selected USB input. Broad human accuracy testing remains; Persian recognition has meaningful word errors. |
 | Dictation | **Working in guarded fixtures** | Frozen target, streaming preview, cleanup, dictionary, cancellation, clipboard preservation, and transcript recovery. The full Notepad/Chromium/VS Code/Office matrix is incomplete. |
 | Screen guidance | **Working with limits** | Window, monitor, and region capture; scribbles; pointers and walkthrough state. Guidance cannot execute clicks. Mixed-DPI and broad application walkthrough coverage remain incomplete. |
 | Files and documents | **Working locally** | Import and bounded extraction for text, PDF, DOCX, XLSX, and PPTX; generation for text, Office formats, and PDF. Scanned PDFs need OCR. Legacy `.doc`, `.xls`, and `.ppt` must be converted first. |
@@ -79,16 +79,16 @@ Default shortcuts are configurable:
 
 | Action | Default |
 |---|---|
-| Hold to talk; double-tap to latch recording | `Ctrl+Alt+Space` |
+| Talk: tap once to listen and again to send, or hold and release | `Ctrl+Alt+Space` |
 | Dictate into the focused application | `Ctrl+Alt+D` |
 | Open the agent composer | `Ctrl+Alt+A` |
 | Emergency stop | `Ctrl+Alt+Escape` |
 
-In **Settings → Keyboard shortcuts**, click any action field, press the preferred button or combination, then release it. Single letters, numbers, function keys, Space, Enter, navigation keys, punctuation, Left Shift, Right Shift, Left Ctrl, Right Ctrl, Left Alt, and Right Alt are supported. Escape alone cancels recording and Tab alone keeps keyboard navigation; add a modifier if you want to use either. Mouse, synthetic, duplicate, and reserved Windows shortcuts are rejected. Nothing changes until settings are saved.
+In **Settings → Keyboard shortcuts**, click any action field, press the preferred button or combination, then release it. Valid changes save immediately. Single letters, numbers, function keys, Space, Enter, navigation keys, punctuation, Left Shift, Right Shift, Left Ctrl, Right Ctrl, Left Alt, and Right Alt are supported. Escape alone cancels recording and Tab alone keeps keyboard navigation; add a modifier if you want to use either. Mouse, synthetic, duplicate, and reserved Windows shortcuts are rejected.
 
 A one-button shortcut is global while HeyBuddy runs. If you assign `A`, `Space`, Left Shift, or another ordinary button, HeyBuddy captures it for that action and it will not work normally in other applications. If one action uses Shift, Ctrl, or Alt alone, another action cannot use that same modifier in its combination because both actions would start together. Function keys or non-overlapping combinations are better defaults when you still need the button's usual behavior.
 
-In **Settings → Screen and companion**, open **Choose from color palette…** for the full Windows color picker with Red, Green, and Blue fields. You can also enter an exact hex value. Cancel preserves the current color; confirming applies and saves it. Companion size, reduced motion, screen source, image quality, microphone, output, voice, speed, model paths, GPU limits, retention, and startup behavior are also configurable.
+In **Settings → Screen and companion**, open **Choose from color palette…** for the full Windows color picker with Red, Green, and Blue fields. You can also enter an exact hex value. Cancel preserves the current color; confirming applies and saves it. While voice input is active, the half-size pointer becomes a compact three-bar microphone meter that moves with the real input level. Companion size, reduced motion, screen source, image quality, microphone, output, voice, speed, model paths, GPU limits, retention, and startup behavior are also configurable.
 
 **Hands-free** is explicitly enabled and does not restart itself after relaunch. It uses energy-based voice detection and currently has no acoustic echo cancellation, so headphones are recommended.
 
@@ -142,15 +142,16 @@ The latest persisted source checks include:
 - Runtime: 51/51 tests without paid calls or owner cloud keys.
 - Connectors: 12/12 protocol and policy tests, plus 10/10 connector UI checks without owner accounts.
 - Conversation routing: 41/41 checks.
-- Shortcut and color controls: 82/82 non-interactive checks, including distinct left/right Shift, Ctrl and Alt, AltGr handling, bare letters and digits, navigation, punctuation, duplicate/reserved/overlapping keys, exact-side dispatch, and repeat-key safety. The prior installed field also physically captured and canceled an F8 edit; a live physical standalone-modifier flow remains unclaimed.
-- Native speech/input: 19/19 fixture checks, plus generated multilingual diagnostics. These do not replace a human microphone test.
+- Shortcut and color controls: 94/94 non-interactive checks, including tap/hold voice transitions, immediate persistence, focused Agent mode, distinct left/right Shift, Ctrl and Alt, AltGr handling, bare letters and digits, navigation, punctuation, duplicate/reserved/overlapping keys, exact-side dispatch, and repeat-key safety. A live physical standalone-modifier flow remains unclaimed.
+- Companion rendering: 16/16 checks across 96, 144, and 192 DPI, including compact listening state and input-responsive voice bars.
+- Native speech/input: 19/19 fixture checks and generated multilingual diagnostics. A separate eight-second live probe received 99 frames from `Microphone (USB Audio Device)`, measured a quiet −42 dB maximum dynamic level, and produced a local English transcript; broader human accuracy testing remains.
 - Installed-app catalog: 18/18 read-only checks.
 - Hosted Calculator identity: 26 checks with the already-open app and no input sent by the harness.
 - Main-window rendering: 17/17 desktop, compact, app-picker, and Persian RTL checks.
 - NuGet vulnerability scan: zero vulnerable package entries across ten projects at the recorded audit time.
 - Installed 0.2.1 baseline upgrade: all 537 payload files verified, the app relaunched, and five retained settings, memory, and history files preserved byte-for-byte. Exact outer-package hashes are supplied in that GitHub Release's `SHA256SUMS.txt` asset.
 
-The installed UI displayed 0.2.0 and reached local-model Ready. Exact Auto requests brought existing Calculator and Telegram windows forward with one verified action each; no private Telegram content was read. A separate installed Auto run found `heybuddy-typing-check.txt - Notepad` and showed a `desktop_type` approval preview containing the exact marker `[HEYBUDDY-LIVE-VERIFY-20260903]`. Its first typing attempt failed closed because the control did not expose verifiable editable text. Auto refreshed the snapshot and completed one bounded retry; the five-action run ended with `performed=true`, `targetVerified=true`, `outcomeVerified=true`, and `foregroundChanged=false`. A later independent visual reread was stopped when user input was detected, so it is not claimed as separate evidence. A human microphone sample remains pending. Authenticated account connectors, Office application control, global hold/double-tap shortcuts, and mixed-DPI interaction also need broader live validation.
+The installed UI displayed 0.2.0 and reached local-model Ready. Exact Auto requests brought existing Calculator and Telegram windows forward with one verified action each; no private Telegram content was read. A separate installed Auto run found `heybuddy-typing-check.txt - Notepad` and showed a `desktop_type` approval preview containing the exact marker `[HEYBUDDY-LIVE-VERIFY-20260903]`. Its first typing attempt failed closed because the control did not expose verifiable editable text. Auto refreshed the snapshot and completed one bounded retry; the five-action run ended with `performed=true`, `targetVerified=true`, `outcomeVerified=true`, and `foregroundChanged=false`. A later independent visual reread was stopped when user input was detected, so it is not claimed as separate evidence. Version 0.2.3 adds the live USB microphone probe described above. Authenticated account connectors, Office application control, physical global shortcut gestures, hands-free acoustics, and mixed-DPI interaction still need broader live validation.
 
 Read the [full validation record](docs/validation.md), [0.2.0 refinement evidence](docs/refinement-2026-09-03.md), and [feature matrix](docs/feature-matrix.md). These results support a tested personal local build; they do not establish full Clicky parity or production readiness in every application.
 
@@ -164,7 +165,7 @@ dotnet build Clicky.slnx --configuration Release
 dotnet test Clicky.slnx --configuration Release
 dotnet format Clicky.slnx --verify-no-changes
 pwsh -File scripts/verify.ps1 -NativeFixtures
-pwsh -File scripts/release.ps1 -Version 0.2.2
+pwsh -File scripts/release.ps1 -Version 0.2.3
 ```
 
 Native focus/input tests create controlled windows and should run only when the desktop is available. The release script creates a self-contained Windows x64 payload, portable ZIP, installer, and checksum manifest. It does not install, publish, or code-sign the result.

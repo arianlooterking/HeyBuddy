@@ -117,7 +117,9 @@ public sealed class SpeechService : IDisposable
                     current.Pcm.Write(args.Buffer, 0, args.BytesRecorded);
                     var frame = current.Meter.Add(args.Buffer.AsSpan(0, args.BytesRecorded));
                     capture = current.Meter.Snapshot();
-                    level = (float)frame.Rms;
+                    // Use the changing part of the signal so electrical DC offset does not
+                    // make the UI claim that it hears the user.
+                    level = (float)frame.DynamicRms;
                     current.Level = level;
                     // This activity hint controls previews and hands-free timing only. Final
                     // recognition evaluates the complete signal and never requires this threshold.

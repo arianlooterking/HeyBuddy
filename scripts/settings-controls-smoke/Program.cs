@@ -19,6 +19,7 @@ using WpfTextBox = System.Windows.Controls.TextBox;
 internal static class Program
 {
     private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
+    private const BindingFlags PrivateStatic = BindingFlags.Static | BindingFlags.NonPublic;
     private static readonly Type RecorderType = typeof(MainWindow).Assembly.GetType("Clicky.Windows.ShortcutRecorder")!;
 
     [STAThread]
@@ -42,6 +43,15 @@ internal static class Program
         }
         try
         {
+            string Transition(HotkeyGesture gesture, bool recording, bool latched, double milliseconds) =>
+                typeof(MainWindow).GetMethod("ResolveVoiceShortcutGesture", PrivateStatic)!
+                    .Invoke(null, [gesture, recording, latched, TimeSpan.FromMilliseconds(milliseconds)])!.ToString()!;
+            Verify("A quick voice shortcut press starts recording", Transition(HotkeyGesture.Pressed, false, false, 0) == "Start");
+            Verify("A quick voice shortcut release keeps listening", Transition(HotkeyGesture.Released, true, false, 120) == "KeepListening");
+            Verify("The next shortcut press finishes tap-to-toggle recording", Transition(HotkeyGesture.Pressed, true, true, 900) == "Finish");
+            Verify("A held voice shortcut finishes when released", Transition(HotkeyGesture.Released, true, false, 700) == "Finish");
+            Verify("A release after tap-to-toggle cannot stop recording twice", Transition(HotkeyGesture.Released, true, true, 1000) == "None");
+
             var starts = 0;
             var ends = 0;
             var messages = new List<string>();
@@ -257,6 +267,8 @@ internal static class Program
             ((DispatcherTimer)typeof(MainWindow).GetField("foregroundTimer", PrivateInstance)!.GetValue(window)!).Stop();
             var companion = new CompanionWindow(services.Settings, () => { });
             typeof(MainWindow).GetField("companion", PrivateInstance)!.SetValue(window, companion);
+            Invoke(window, "OpenAgentComposer", false);
+            Verify("Agent shortcut prepares a visible Agent-mode composer state", ((ComboBox)window.FindName("ModeSelector")).SelectedIndex == 1 && ((FrameworkElement)window.FindName("ChatPage")).Visibility == Visibility.Visible && ((TextBlock)window.FindName("StatusText")).Text.StartsWith("Agent composer ready", StringComparison.Ordinal));
             Invoke(window, "ShowSettings");
             var page = (StackPanel)window.FindName("PageContent");
             var fields = page.Children.OfType<WpfTextBox>().Where(control => RecorderType.IsInstanceOfType(control)).ToArray();
@@ -269,6 +281,11 @@ internal static class Program
             Invoke(fields[0], "CancelRecording");
             Invoke(fields[0], "CompleteAfterRelease", ModifierKeys.None, new Func<Key, bool>(_ => false));
             Verify("An unshown Settings fixture never installs hooks after recording", typeof(MainWindow).GetField("hotkeys", PrivateInstance)!.GetValue(window) is null);
+            Invoke(fields[0], "BeginRecording");
+            Invoke(fields[0], "RecordKeyDown", Key.F18, ModifierKeys.None);
+            Invoke(fields[0], "CompleteAfterRelease", ModifierKeys.None, new Func<Key, bool>(_ => false));
+            Verify("A completed shortcut saves immediately without the page Save button", fields[0].Text == "F18" && services.Settings.TalkShortcut == "F18" && AppSettings.Load().TalkShortcut == "F18");
+            Verify("Immediate saving in an unshown fixture does not install global hooks", typeof(MainWindow).GetField("hotkeys", PrivateInstance)!.GetValue(window) is null);
             var duplicate = new AppSettings { TalkShortcut = "Control+Alt+D" };
             Verify("Save detects duplicate bindings including modifier aliases", Refuses(() => Invoke(window, "ValidateShortcutSettings", duplicate)));
             var duplicateBare = new AppSettings { TalkShortcut = "A", DictationShortcut = "a" };
@@ -294,6 +311,18 @@ internal static class Program
             using (var dialog = (System.Windows.Forms.ColorDialog)typeof(MainWindow).GetMethod("CreateCompanionColorDialog", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [Color.FromRgb(201, 17, 133)])!)
                 Verify("Native palette opens its full custom RGB controls", dialog.FullOpen && dialog.AnyColor && dialog.AllowFullOpen && dialog.Color.R == 201 && dialog.Color.G == 17 && dialog.Color.B == 133);
             Verify("Half-size preference remains unchanged", services.Settings.CompanionScale == .5 && mascot.LayoutTransform.Value.M11 == .5);
+            var listeningIndicator = mascot.Children.OfType<Canvas>().Single(control => control.Name == "ListeningIndicator");
+            var listeningDisc = listeningIndicator.Children.OfType<System.Windows.Shapes.Ellipse>().ElementAt(1);
+            var listeningBars = listeningIndicator.Children.OfType<System.Windows.Shapes.Rectangle>().ToArray();
+            companion.SetListening(true);
+            var restingHeights = listeningBars.Select(bar => bar.Height).ToArray();
+            companion.SetAudioLevel(.1f);
+            Verify("Listening replaces the pointer with a half-size live voice indicator", pointer.Visibility == Visibility.Collapsed && listeningIndicator.Visibility == Visibility.Visible && mascot.Width == 36 && mascot.Height == 36 && ((SolidColorBrush)listeningDisc.Fill).Color == Color.FromRgb(201, 17, 133));
+            Verify("Real audio level expands the three voice bars", listeningBars.Zip(restingHeights).All(pair => pair.First.Height > pair.Second));
+            companion.SetReply("This bubble must wait until listening stops.");
+            Verify("Listening stays compact without a text bubble covering the cursor", ((Border)((StackPanel)companion.Content).Children[1]).Visibility == Visibility.Collapsed);
+            companion.SetListening(false);
+            Verify("Stopping listening restores the half-size pointer", pointer.Visibility == Visibility.Visible && listeningIndicator.Visibility == Visibility.Collapsed && mascot.Width == 48 && mascot.Height == 62);
             RenderControls(fields, color, page, output);
             Verify("Recorder and palette controls render without showing a window", !application.Windows.OfType<Window>().Any(item => item.IsVisible) && !services.Speech.IsRecording && !services.Factory.ModelManager.GetStatus().Running);
         }

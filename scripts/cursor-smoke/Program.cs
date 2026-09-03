@@ -25,6 +25,7 @@ internal static class Program
             var content = (StackPanel)window.Content;
             var mascot = (Canvas)content.Children[0];
             var pointer = (ShapePath)mascot.Children[0];
+            var listeningIndicator = mascot.Children.OfType<Canvas>().Single(control => control.Name == "ListeningIndicator");
             var bubble = (Border)content.Children[1];
             var status = (TextBlock)bubble.Child;
             var sizeItems = window.ContextMenu.Items.OfType<MenuItem>().Where(item => item.IsCheckable).ToArray();
@@ -47,7 +48,7 @@ internal static class Program
             var normal = Bounds(1);
             var small = Bounds(.5);
             Verify("Pointer geometry is exactly half width and height", Near(small.Width * 2, normal.Width) && Near(small.Height * 2, normal.Height));
-            Verify("Both eyes share the pointer transform", mascot.Children.Count == 3 && Near(mascot.LayoutTransform.Value.M11, .5) && content.LayoutTransform.Value.IsIdentity);
+            Verify("The pointer, eyes and voice indicator share the companion transform", mascot.Children.Count == 4 && Near(mascot.LayoutTransform.Value.M11, .5) && content.LayoutTransform.Value.IsIdentity);
             Verify("Idle hit area hugs the small buddy", content.DesiredSize.Width <= 30 && content.DesiredSize.Height <= 36 && window.SizeToContent == SizeToContent.WidthAndHeight);
 
             foreach (var dpi in new[] { 96, 144, 192 })
@@ -66,6 +67,17 @@ internal static class Program
             Bounds(.5);
             Verify("Reply bubble and 12-point text remain unscaled", bubble.RenderSize == normalBubble && status.FontSize == 12 && bubble.LayoutTransform.Value.IsIdentity);
             Render(content, 144, Path.Combine(output, "small-with-reply-144dpi.png"));
+
+            window.SetListening(true);
+            var quietBars = listeningIndicator.Children.OfType<System.Windows.Shapes.Rectangle>().Select(bar => bar.Height).ToArray();
+            window.SetAudioLevel(.1f);
+            var activeBars = listeningIndicator.Children.OfType<System.Windows.Shapes.Rectangle>().Select(bar => bar.Height).ToArray();
+            Layout(content);
+            Verify("Listening becomes a compact voice indicator instead of a pointer and bubble", pointer.Visibility == Visibility.Collapsed && listeningIndicator.Visibility == Visibility.Visible && bubble.Visibility == Visibility.Collapsed && content.DesiredSize.Width <= 22 && content.DesiredSize.Height <= 22);
+            Verify("Voice bars react to actual input amplitude", activeBars.Zip(quietBars).All(pair => pair.First > pair.Second));
+            Render(content, 144, Path.Combine(output, "small-listening-144dpi.png"));
+            window.SetListening(false);
+            Verify("Ending voice input restores the half-size pointer", pointer.Visibility == Visibility.Visible && listeningIndicator.Visibility == Visibility.Collapsed);
 
             var events = new List<double>();
             window.ScaleChanged += events.Add;

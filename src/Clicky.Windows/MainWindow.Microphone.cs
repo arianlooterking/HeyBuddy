@@ -14,6 +14,7 @@ public partial class MainWindow
     {
         MicrophoneActivity.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
         MicrophoneInputLevel.Value = 0;
+        companion?.SetListening(active);
         if (!active)
             return;
         activeMicrophoneName = app.Speech.IsRecording ? app.Speech.LastCaptureStatus.DeviceName
@@ -29,6 +30,7 @@ public partial class MainWindow
         {
             if (MicrophoneActivity.Visibility != Visibility.Visible)
                 return;
+            companion?.SetAudioLevel(level);
             var decibels = 20 * Math.Log10(Math.Max(level, .000001));
             MicrophoneInputLevel.Value = Math.Clamp((decibels + 70) / 70 * 100, 0, 100);
             MicrophoneActivityLabel.Text = activeMicrophoneName + (decibels < -70 ? " · no input signal" : $" · input {decibels:0} dB");
